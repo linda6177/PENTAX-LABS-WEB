@@ -2,12 +2,13 @@ import {
   WHITE, cloneSlot, slotFromFactory, parseCube, evaluateCube, fitCubeQuick,
   prepareRelativeProxy, applyPreparedRelative, displayMatrix, setDisplayMatrix,
   relativeCurve, applyRelativeCurve, applyColorControls, configureDisplayKernel, adaptSlotToIstd,
-  smoothCurveTarget, canonicalNaturalSlot,
+  canonicalNaturalSlot,
 } from './engine.js';
 import {
   loadBuiltinRuntime, compileCameraScript, compileCameraScriptFiles, compileIstdFiles,
   buildFocusZip, buildFocusFiles, base64Bytes, zipStore,
 } from './runtime.js';
+import {LANGUAGE_OPTIONS, resolveLanguage, tr as i18nTr} from './i18n.js';
 
 const $=id=>document.getElementById(id);
 const STORAGE_KEY='pentax-labs-web-beta80-parity-v2';
@@ -27,7 +28,9 @@ const state={
   comparing:false,compareMode:0,split:.5,sourceName:'内置色卡',sourceMode:'chart',
   runtimeBases:{k1:null,k1ii:null},sdRoot:null,
   curveAnchors:Array.from({length:3},()=>Array.from({length:4},()=>[])),curveAddMode:false,
+  curveDisplays:Array.from({length:3},()=>Array.from({length:4},()=>null)),
   cpOriginal:null,cpMode:'random',cpBaseIndex:5,cpControls:[0,0,4,-3,-2],cpCurves:'210',cpChannel:0,
+  language:'system',accent:'#3178DF',settingsPage:'language',cpInspector:'basic',
 };
 const original=document.createElement('canvas');
 const originalContext=original.getContext('2d',{willReadFrequently:true});
@@ -37,9 +40,22 @@ const cpOriginal=document.createElement('canvas'), cpOriginalCtx=cpOriginal.getC
 let renderTimer=0,toastTimer=0,curvePointer=null;
 let thumbRevision=0;
 const thumbCache=new Map();
+const originalText=new WeakMap();
+const ACCENTS=['#3178DF','#4E89B1','#A0A0A8','#56AA91','#AA80C7','#C18A5D'];
+const GUIDE_SECTIONS=[
+  ['基础操作','左侧选择原厂或用户滤镜，顶部三个槽位可独立启用。右侧矩阵与曲线直接作用于当前槽位；底部选择实际相机型号。'],
+  ['LUT 导入与导出','导入 .cube 后使用当前 R367 拟合流程转换为机内 Matrix + RGB Gamma。显示的主色差是最终拟合验证值；独立复核值只作为交叉检查。'],
+  ['色彩矩阵与 Gamma 曲线','曲线显示采用和桌面端相同的平滑意图模型：原厂 256 点不会直接限制可见曲线。直接拖动曲线主体可做大范围平滑形变；双击或“加点”增加控制点，右键删除。'],
+  ['照片预览与对比','照片只在浏览器本地解码，不上传。色卡/照片可切换；对比按钮依次为全显示、左右、上下。'],
+  ['正负逆冲','正负逆冲右侧按桌面端分为“色彩调节”和“通道曲线”。色彩页选择原厂矩阵银行与五项机内参数；曲线页查看并选择 ROM 的 RGB 0/1/2 曲线。'],
+  ['四季滤镜','工程模式导出已核验文件。四季滤镜一次写卡、两次开机：01 首次通过工程入口启用 SCRIPT EN MODE 并正常关机；02 保持同一张卡正常开机执行 script/startup.ttl，再检查机内四季滤镜。'],
+  ['*ist D 工具箱','*ist D 自定义滤镜只有 signed10 Q8 Matrix + 一条共享 4096 U8 Gamma，与 K-1/K-1 II 三路 RGB Gamma 能力不同。工具箱还提供中文固件与 AF Fine Adjustment 文件导出。'],
+  ['导出目录与文件','在支持 File System Access API 的 Edge/Chrome 中，导出会先让你选择 SD 卡根目录或测试目录，然后直接写入。浏览器不支持时才回退 ZIP/下载。'],
+];
 
 function currentSlot(){return state.slots[state.active];}
 function currentBase(){return state.bases[state.active];}
+function tr(zh,fallback){return i18nTr(zh,state.language,fallback);}
 function safeName(value){return String(value||'PentaxLabs').replace(/[\\/:*?"<>|]+/g,'_').slice(0,72);}
 function downloadBlob(filename,data,type='application/octet-stream'){
   const blob=data instanceof Blob?data:new Blob([data],{type});
@@ -49,6 +65,42 @@ function downloadBlob(filename,data,type='application/octet-stream'){
 }
 function notify(message){const t=$('toast');t.textContent=message;t.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('visible'),2800);}
 function setStatus(message){$('footerStatus').textContent=message;if($('headerStatus'))$('headerStatus').textContent=message;}
+function translateStatic(root=document.body){
+  const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode(node){
+    if(!node.parentElement||['SCRIPT','STYLE','CANVAS'].includes(node.parentElement.tagName))return NodeFilter.FILTER_REJECT;
+    return node.nodeValue.trim()?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT;
+  }});
+  let node;while((node=walker.nextNode())){
+    let source=originalText.get(node);if(source===undefined){source=node.nodeValue;originalText.set(node,source);}
+    const m=source.match(/^(\s*)(.*?)(\s*)$/s),key=m?.[2]?.trim();if(!key)continue;
+    node.nodeValue=(m?.[1]||'')+tr(key)+(m?.[3]||'');
+  }
+  const search=$('filterSearch');if(search)search.placeholder=tr('搜索滤镜名称…','Search filters…');
+  if($('settingsBtn')){$('settingsBtn').title=tr('设置','Settings');$('settingsBtn').setAttribute('aria-label',tr('设置','Settings'));}
+}
+function renderGuide(){
+  const root=$('guideList');if(!root)return;root.replaceChildren();
+  GUIDE_SECTIONS.forEach(([title,body],index)=>{
+    const item=document.createElement('div');item.className='guide-item';
+    const button=document.createElement('button'),label=document.createElement('b'),arrow=document.createElement('span'),copy=document.createElement('p');
+    label.textContent=tr(title);arrow.textContent='+';copy.textContent=tr(body);button.append(label,arrow);item.append(button,copy);
+    button.onclick=()=>{item.classList.toggle('open');arrow.textContent=item.classList.contains('open')?'−':'+';};root.appendChild(item);
+  });
+}
+function renderSettings(){
+  document.documentElement.lang=resolveLanguage(state.language);
+  document.documentElement.style.setProperty('--accent',state.accent);
+  const select=$('languageSelect');if(select){select.replaceChildren();LANGUAGE_OPTIONS.forEach(([value,label])=>select.add(new Option(value==='system'?tr('自动（浏览器）','Auto (Browser)'):label,value)));select.value=state.language;}
+  const accents=$('accentRow');if(accents){accents.replaceChildren();ACCENTS.forEach(value=>{const b=document.createElement('button');b.className='accent-choice';b.classList.toggle('on',value.toLowerCase()===state.accent.toLowerCase());b.style.setProperty('--swatch',value);b.innerHTML='<i></i>';b.onclick=()=>{state.accent=value;persist();renderSettings();};accents.appendChild(b);});}
+  document.querySelectorAll('[data-settings-page]').forEach(b=>b.classList.toggle('on',b.dataset.settingsPage===state.settingsPage));
+  document.querySelectorAll('[data-settings-pane]').forEach(p=>p.classList.toggle('active',p.dataset.settingsPane===state.settingsPage));
+  const titles={language:'语言 / 主题',guide:'使用指南',about:'关于'};if($('settingsPageTitle'))$('settingsPageTitle').textContent=tr(titles[state.settingsPage]);
+  if($('settingsClose'))$('settingsClose').setAttribute('aria-label',tr('关闭','Close'));
+  renderGuide();translateStatic($('settingsOverlay')||document.body);
+}
+function applyLanguage(){renderNav();renderFilterList();renderSlots();refreshControls();renderCpUi();refreshEngineering();refreshSeason();translateStatic(document.body);renderSettings();}
+function openSettings(){$('settingsOverlay').hidden=false;renderSettings();}
+function closeSettings(){$('settingsOverlay').hidden=true;}
 function stripSource(slot){const copy=cloneSlot(slot);copy.sourceLut=null;return copy;}
 function normalizeSlotShape(slot){
   if(!slot.masterCurve) slot.masterCurve=Array.from({length:256},(_,i)=>i*WHITE/255);
@@ -60,7 +112,9 @@ function normalizeSlotShape(slot){
 function persist(){
   try{localStorage.setItem(STORAGE_KEY,JSON.stringify({
     currentPage:state.currentPage,active:state.active,cameraModel:state.cameraModel,tab:state.tab,
-    compareMode:state.compareMode,slots:state.slots.map(stripSource),bases:state.bases.map(stripSource)
+    compareMode:state.compareMode,language:state.language,accent:state.accent,cpInspector:state.cpInspector,
+    curveAnchors:state.curveAnchors,curveDisplays:state.curveDisplays,
+    slots:state.slots.map(stripSource),bases:state.bases.map(stripSource)
   }));}catch(error){console.warn(error);}
 }
 function restoreLocal(){
@@ -115,6 +169,11 @@ function initializeSlots(){
     state.active=Math.max(0,Math.min(2,Number(restored.active)||0));
     state.cameraModel=['istd','k1','k1ii'].includes(restored.cameraModel)?restored.cameraModel:'k1ii';state.tab=restored.tab==='user'?'user':'factory';
     state.compareMode=Math.max(0,Math.min(2,Number(restored.compareMode)||0));
+    state.language=LANGUAGE_OPTIONS.some(([value])=>value===restored.language)?restored.language:'system';
+    state.accent=/^#[0-9a-f]{6}$/i.test(restored.accent||'')?restored.accent:'#3178DF';
+    state.cpInspector=restored.cpInspector==='curve'?'curve':'basic';
+    if(Array.isArray(restored.curveAnchors)&&restored.curveAnchors.length===3)state.curveAnchors=restored.curveAnchors;
+    if(Array.isArray(restored.curveDisplays)&&restored.curveDisplays.length===3)state.curveDisplays=restored.curveDisplays;
     state.slots=restored.slots.map(slot=>normalizeSlotShape({...slot,sourceLut:null,camera_model:state.cameraModel}));
     state.bases=restored.bases.map(slot=>normalizeSlotShape({...slot,sourceLut:null,camera_model:state.cameraModel}));return;
   }
@@ -156,6 +215,8 @@ function switchCameraModel(model){
     next.name=slot.name;next.enabled=slot.enabled;return normalizeSlotShape(next);
   });
   state.bases=state.slots.map(cloneSlot);
+  state.curveAnchors=Array.from({length:3},()=>Array.from({length:4},()=>[]));
+  state.curveDisplays=Array.from({length:3},()=>Array.from({length:4},()=>null));
   state.channel=model==='istd'?0:Math.min(3,state.channel);
   persist();refresh();setStatus('机型：'+(model==='istd'?'PENTAX *ist D':model==='k1'?'PENTAX K-1':'PENTAX K-1 II'));
 }
@@ -164,7 +225,7 @@ function renderNav(){
   const root=$('navItems');root.replaceChildren();
   FEATURES.forEach(([key,zh,en],index)=>{
     const b=document.createElement('button');b.className='nav-entry';b.classList.toggle('active',state.currentPage===key);
-    b.innerHTML=`<span class="nav-number">${String(index+1).padStart(2,'0')}</span><span class="nav-copy"><strong>${zh}</strong><small>${en}</small></span><span class="nav-arrow">›</span>`;
+    b.innerHTML=`<span class="nav-number">${String(index+1).padStart(2,'0')}</span><span class="nav-copy"><strong>${tr(zh,en)}</strong><small>${en}</small></span><span class="nav-arrow">›</span>`;
     b.onclick=()=>goPage(key);root.appendChild(b);
   });
 }
@@ -204,9 +265,9 @@ function renderFilterList(){
   const term=$('filterSearch').value.trim().toLowerCase(),list=$('filterList');list.replaceChildren();
   const factory=state.tab==='factory',items=factory?state.factoryRows:userItems();
   const filtered=items.filter(item=>String(factory?item.label:item.name).toLowerCase().includes(term));
-  $('filterCategory').textContent=factory?'原厂风格':'用户滤镜';$('filterCount').textContent=filtered.length+' 个';
+  $('filterCategory').textContent=tr(factory?'原厂风格':'用户滤镜');$('filterCount').textContent=filtered.length+tr(' 个',' items');
   $('factoryTab').classList.toggle('on',factory);$('userTab').classList.toggle('on',!factory);
-  if(!filtered.length){const e=document.createElement('div');e.className='empty-list';e.textContent=factory?'没有匹配的原厂滤镜':'尚无用户滤镜，导入 .cube 后会保存在这里';list.appendChild(e);return;}
+  if(!filtered.length){const e=document.createElement('div');e.className='empty-list';e.textContent=tr(factory?'没有匹配的原厂滤镜':'尚无用户滤镜，导入 .cube 后会保存在这里',factory?'No matching factory filters':'No user filters yet. Imported .cube files are saved here.');list.appendChild(e);return;}
   filtered.forEach(item=>{
     const slot=factory?state.factorySlots.get(item.key):item.slot,row=document.createElement('div');row.className='filter-row';
     const b=document.createElement('button');b.className='filter-item';
@@ -221,7 +282,7 @@ function renderFilterList(){
     copy.append(title,sub);b.append(thumb,copy);
     if(selected){const indicator=document.createElement('span');indicator.className='filter-indicator';b.appendChild(indicator);}
     b.onclick=()=>applyPreset(factory?item.key:item.id,factory);row.appendChild(b);
-    if(!factory){const del=document.createElement('button');del.className='delete-filter';del.textContent='×';del.title='删除用户滤镜';del.onclick=async e=>{e.stopPropagation();await deleteUser(item.id);};row.appendChild(del);}
+    if(!factory){const del=document.createElement('button');del.className='delete-filter';del.textContent='×';del.title=tr('删除用户滤镜','Delete user filter');del.onclick=async e=>{e.stopPropagation();await deleteUser(item.id);};row.appendChild(del);}
     list.appendChild(row);paintFilterThumb(thumb,slot,factory?item.key:item.id);
   });
 }
@@ -229,16 +290,16 @@ function renderSlots(){
   const root=$('headerSlots');root.replaceChildren();
   state.slots.forEach((slot,index)=>{
     const card=document.createElement('div');card.className='header-slot';card.classList.toggle('active',index===state.active);card.classList.toggle('enabled',slot.enabled);
-    const dot=document.createElement('button');dot.className='slot-enable';dot.textContent=slot.enabled?'✓':'';dot.title=slot.enabled?'停用槽位':'启用槽位';
+    const dot=document.createElement('button');dot.className='slot-enable';dot.textContent='';dot.title=tr(slot.enabled?'停用槽位':'启用槽位',slot.enabled?'Disable slot':'Enable slot');
     dot.onclick=e=>{e.stopPropagation();slot.enabled=!slot.enabled;persist();renderSlots();};
     const copy=document.createElement('div');copy.className='slot-copy';
     const name=document.createElement('strong');name.textContent=slot.name||'CUST';
     const sub=document.createElement('small');
     const factory=factoryRow(slot.preset_key);
-    sub.textContent=slot.user_preset_id?(state.users.get(slot.user_preset_id)?.name||'用户滤镜'):(factory?.label||'尚未选择预设');
+    sub.textContent=slot.user_preset_id?(state.users.get(slot.user_preset_id)?.name||tr('用户滤镜','User filter')):(factory?.label||tr('尚未选择预设','No preset selected'));
     copy.append(name,sub);card.append(dot,copy);
     card.onclick=()=>{state.active=index;persist();refresh();};
-    card.ondblclick=e=>{if(e.target===dot)return;const next=prompt('预设名称',slot.name||'CUST');if(next!==null&&next.trim()){slot.name=next.trim().slice(0,12);persist();renderSlots();refreshControls();}};
+    card.ondblclick=e=>{if(e.target===dot)return;const next=prompt(tr('预设名称','Preset name'),slot.name||'CUST');if(next!==null&&next.trim()){slot.name=next.trim().slice(0,12);persist();renderSlots();refreshControls();}};
     root.appendChild(card);
   });
 }
@@ -263,14 +324,31 @@ function renderMatrix(){
   }
 }
 function curveFactoryBase(slot){return state.factorySlots.get(slot.preset_key)||state.natural;}
-function smoothCurveDisplay(values){
-  let out=values.slice();const kernel=[1,4,6,4,1].map(v=>v/16);
-  for(let pass=0;pass<2;pass++){
-    const next=out.slice();for(let i=1;i<out.length-1;i++){let sum=0;for(let k=-2;k<=2;k++)sum+=out[Math.max(0,Math.min(out.length-1,i+k))]*kernel[k+2];next[i]=sum;}out=next;
-  }
+function sampleCurve(values,x){const p=Math.max(0,Math.min(1,x))*(values.length-1),a=Math.min(values.length-2,Math.floor(p)),f=p-a;return values[a]*(1-f)+values[a+1]*f;}
+function fitBezierSegment(values,left,right){
+  let aa=0,ab=0,bb=0,ra=0,rb=0,minDerivative=Infinity;const lo=left[0],hi=right[0],span=Math.max(hi-lo,1e-6);
+  for(let i=0;i<=64;i++){const t=i/64,b1=3*t*(1-t)**2,b2=3*t*t*(1-t),v=sampleCurve(values,lo+t*span),res=v-left[1]*(1-t)**3-right[1]*t**3;aa+=b1*b1;ab+=b1*b2;bb+=b2*b2;ra+=b1*res;rb+=b2*res;}
+  const det=aa*bb-ab*ab||1e-12,c1=(ra*bb-rb*ab)/det,c2=(rb*aa-ra*ab)/det;
+  for(let i=0;i<=64;i++){const t=i/64,d=3*((c1-left[1])*(1-t)**2+2*(c2-c1)*t*(1-t)+(right[1]-c2)*t*t);minDerivative=Math.min(minDerivative,d);}
+  const slope=right[1]-left[1],scale=minDerivative<0?Math.min(1,slope/Math.max(slope-minDerivative,1e-12)):1;
+  return t=>{const raw=left[1]*(1-t)**3+3*c1*t*(1-t)**2+3*c2*t*t*(1-t)+right[1]*t**3,line=left[1]+slope*t;return Math.max(0,Math.min(1,line+scale*(raw-line)));};
+}
+function smoothCurveShape(values,points=null){
+  const source=values.map(v=>Math.max(0,Math.min(1,Number(v)))),pts=(points&&points.length>=2?points:[[0,source[0]],[1,source.at(-1)]]).map(p=>[Number(p[0]),Number(p[1])]).sort((a,b)=>a[0]-b[0]);
+  const fits=[];for(let i=0;i<pts.length-1;i++)fits.push(fitBezierSegment(source,pts[i],pts[i+1]));
+  const out=new Array(source.length);for(let i=0;i<out.length;i++){const x=i/(out.length-1);let s=Math.max(0,Math.min(pts.length-2,pts.findIndex((p,j)=>j<pts.length-1&&x<=pts[j+1][0])));if(s<0)s=pts.length-2;const a=pts[s],b=pts[s+1],t=Math.max(0,Math.min(1,(x-a[0])/Math.max(b[0]-a[0],1e-6)));out[i]=fits[s](t);}
   for(let i=1;i<out.length;i++)out[i]=Math.max(out[i],out[i-1]);return out;
 }
-function curveView(){return smoothCurveDisplay(relativeCurve(currentSlot(),state.natural,state.channel,state.curveProfiles,curveFactoryBase(currentSlot())));}
+function curveRawView(){return relativeCurve(currentSlot(),state.natural,state.channel,state.curveProfiles,curveFactoryBase(currentSlot()));}
+function curveView(){const cached=state.curveDisplays[state.active][state.channel];return Array.isArray(cached)&&cached.length===257?cached.slice():smoothCurveShape(curveRawView());}
+function curvePoints(display){const saved=state.curveAnchors[state.active][state.channel];return saved.length>=2?saved:[[0,display[0]],[1,display.at(-1)]];}
+function ensureCurvePoints(display){let points=state.curveAnchors[state.active][state.channel];if(points.length<2){points=[[0,display[0]],[1,display.at(-1)]];state.curveAnchors[state.active][state.channel]=points;}return points;}
+function curveBodyTarget(baseline,points,x,y){
+  const pts=points.map(p=>p.slice()).sort((a,b)=>a[0]-b[0]);let index=Math.max(0,Math.min(pts.length-2,pts.findIndex((p,i)=>i<pts.length-1&&x<=pts[i+1][0])));if(index<0)index=pts.length-2;const left=pts[index],right=pts[index+1],xx=Math.max(left[0]+1e-5,Math.min(right[0]-1e-5,x));
+  const out=baseline.slice(),at=sampleCurve(baseline,xx),lineAt=left[1]+(xx-left[0])/(right[0]-left[0])*(right[1]-left[1]);
+  for(let i=0;i<out.length;i++){const p=i/(out.length-1);if(p<left[0]||p>right[0])continue;const t=(p-left[0])/(right[0]-left[0]),chord=left[1]+t*(right[1]-left[1]);if(pts.length===2&&Math.abs(at-lineAt)>.002){const strength=Math.max(-3,Math.min(4,(y-lineAt)/(at-lineAt)));out[i]=chord+strength*(baseline[i]-chord);}else{const atT=(xx-left[0])/(right[0]-left[0]),weight=t*t*(1-t)**2/Math.max(atT*atT*(1-atT)**2,1e-8);out[i]+= (y-at)*weight;}}
+  return smoothCurveShape(out,pts);
+}
 function drawCurve(){
   const canvas=$('curveCanvas'),ctx=canvas.getContext('2d'),w=canvas.width,h=canvas.height,values=curveView();
   ctx.clearRect(0,0,w,h);ctx.fillStyle='#111216';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#292b31';ctx.lineWidth=1;
@@ -278,7 +356,7 @@ function drawCurve(){
   ctx.setLineDash([6,6]);ctx.strokeStyle='#666';ctx.globalAlpha=.55;ctx.beginPath();ctx.moveTo(0,h);ctx.lineTo(w,0);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;
   const colors=['#d7d7de','#ef6767','#6fd58b','#6ba4ff'];ctx.strokeStyle=colors[state.channel];ctx.lineWidth=2.2;ctx.lineJoin='round';ctx.lineCap='round';ctx.beginPath();
   values.forEach((v,i)=>{const x=i/(values.length-1)*w,y=h-Math.max(0,Math.min(1,v))*h;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();
-  const anchors=state.curveAnchors[state.active][state.channel]||[];
+  const anchors=curvePoints(values);
   anchors.forEach(([x,y])=>{ctx.beginPath();ctx.arc(x*w,(1-y)*h,5.5,0,Math.PI*2);ctx.fillStyle='#17181c';ctx.fill();ctx.strokeStyle=colors[state.channel];ctx.lineWidth=2;ctx.stroke();});
 }
 function refreshControls(){
@@ -287,11 +365,11 @@ function refreshControls(){
   $('saturation').value=Number(slot.color_sat??1);$('saturationVal').textContent=Number(slot.color_sat??1).toFixed(2)+' ×';
   $('hue').value=Number(slot.color_hue||0);$('hueVal').textContent=Math.round(Number(slot.color_hue||0))+'°';
   $('cameraModel').value=state.cameraModel;$('footerCamera').textContent=state.cameraModel==='istd'?'PENTAX *ist D':state.cameraModel==='k1'?'PENTAX K-1':'PENTAX K-1 II';
-  $('exportScriptBtn').textContent=state.cameraModel==='istd'?'导出五 TXT':'导出脚本';
+  $('exportScriptBtn').textContent=tr(state.cameraModel==='istd'?'导出五TXT':'导出脚本',state.cameraModel==='istd'?'Export 5 TXT':'Export Script');
   $('footerFilter').textContent=slot.name||'CUST';
   $('lutModeBtn').classList.toggle('on',state.previewMode==='lut');$('cameraModeBtn').classList.toggle('on',state.previewMode==='camera');$('lutModeBtn').classList.toggle('disabled',!slot.sourceLut);
   $('chartBtn').classList.toggle('on',state.sourceMode==='chart');$('photoBtn').classList.toggle('on',state.sourceMode==='photo');
-  $('toggleCompare').textContent=state.compareMode===0?'全显示':state.compareMode===1?'左右':'上下';
+  $('toggleCompare').textContent=tr(state.compareMode===0?'全显示':state.compareMode===1?'左右':'上下',state.compareMode===0?'Full':state.compareMode===1?'Left / Right':'Top / Bottom');
   $('channelTabs').querySelectorAll('button').forEach(b=>{const channel=Number(b.dataset.channel);b.classList.toggle('on',channel===state.channel);b.disabled=state.cameraModel==='istd'&&channel>0;b.style.opacity=b.disabled?'.35':'1';});
   renderMatrix();drawCurve();
 }
@@ -300,7 +378,7 @@ function applyPreset(identifier,factory){
   let selected=factory?state.factorySlots.get(identifier):state.users.get(identifier)?.slot;
   if(!selected)return;selected=cloneSlot(selected);if(!factory){const item=state.users.get(identifier);selected=state.cameraModel==='istd'?adaptSlotToIstd(selected,state.natural):selected;selected.sourceLut=item?.sourceLut||null;selected.user_preset_id=item.id;}
   selected.enabled=currentSlot().enabled;selected.camera_model=state.cameraModel;normalizeSlotShape(selected);
-  state.slots[state.active]=selected;state.bases[state.active]=cloneSlot(selected);if(state.previewMode==='lut'&&!selected.sourceLut)state.previewMode='camera';persist();refresh();
+  state.slots[state.active]=selected;state.bases[state.active]=cloneSlot(selected);state.curveAnchors[state.active]=[[],[],[],[]];state.curveDisplays[state.active]=[null,null,null,null];if(state.previewMode==='lut'&&!selected.sourceLut)state.previewMode='camera';persist();refresh();
 }
 async function deleteUser(id){
   const item=state.users.get(id);if(!item)return;await dbDelete(id);state.users.delete(id);
@@ -338,11 +416,11 @@ async function importFiles(files){
   for(const file of cubes){try{
     setStatus('拟合 LUT：'+file.name);await new Promise(r=>requestAnimationFrame(r));const cube=parseCube(await file.text(),file.name),fitNatural=canonicalNaturalSlot('k1ii'),fitted=fitCubeQuick(cube,fitNatural,state.cameraModel==='istd'?'k1ii':state.cameraModel),id=cube.id.replace('lut:','');
     fitted.user_preset_id=id;fitted.sourceLut=cube;normalizeSlotShape(fitted);const item={id,name:cube.name,slot:stripSource(fitted),sourceLut:cube,importedAt:Date.now()};
-    state.users.set(id,item);await dbPut(item);const active=state.cameraModel==='istd'?adaptSlotToIstd(fitted,state.natural):fitted;active.user_preset_id=id;active.sourceLut=cube;state.slots[state.active]=cloneSlot(active);state.bases[state.active]=cloneSlot(active);state.tab='user';state.previewMode='camera';persist();notify('已导入「'+cube.name+'」 · ΔE00 '+fitted.fit_report.de00_mean.toFixed(2)+' · RGB '+fitted.fit_report.rgb_mae_255.toFixed(2)+'/255');
+    state.users.set(id,item);await dbPut(item);const active=state.cameraModel==='istd'?adaptSlotToIstd(fitted,state.natural):fitted;active.user_preset_id=id;active.sourceLut=cube;state.slots[state.active]=cloneSlot(active);state.bases[state.active]=cloneSlot(active);state.curveAnchors[state.active]=[[],[],[],[]];state.curveDisplays[state.active]=[null,null,null,null];state.tab='user';state.previewMode='camera';persist();notify('已导入「'+cube.name+'」 · ΔE00 '+fitted.fit_report.de00_mean.toFixed(2)+' · RGB '+fitted.fit_report.rgb_mae_255.toFixed(2)+'/255');
   }catch(e){console.error(e);notify(file.name+'：'+(e.message||e));}}
   $('lutFile').value='';refresh();setStatus('就绪');
 }
-function resetCurrent(){const enabled=currentSlot().enabled;state.slots[state.active]=cloneSlot(currentBase());state.slots[state.active].enabled=enabled;if(state.previewMode==='lut'&&!currentSlot().sourceLut)state.previewMode='camera';persist();refresh();}
+function resetCurrent(){const enabled=currentSlot().enabled;state.slots[state.active]=cloneSlot(currentBase());state.slots[state.active].enabled=enabled;state.curveAnchors[state.active]=[[],[],[],[]];state.curveDisplays[state.active]=[null,null,null,null];if(state.previewMode==='lut'&&!currentSlot().sourceLut)state.previewMode='camera';persist();refresh();}
 
 function applyColorFromControls(){
   const slot=currentSlot();slot.color_sat=Number($('saturation').value);slot.color_hue=Number($('hue').value);
@@ -404,11 +482,12 @@ function setupEngineering(){
   const model=$('engineeringModel');model.replaceChildren();engineeringModels().forEach((m,i)=>model.add(new Option(m.model,String(i))));
   model.onchange=refreshEngineering;refreshEngineering();
   const season=$('seasonModel');season.replaceChildren();engineeringModels().forEach((m,i)=>season.add(new Option(m.model,String(i))));season.value='1';season.onchange=refreshSeason;refreshSeason();
+  translateStatic(document.body);
 }
 function refreshEngineering(){
   const m=engineeringModels()[Number($('engineeringModel').value)||0],variants=(m?.variants||[]).filter(v=>['entry','script_enable','script_disable'].includes(v.action));
   const select=$('engineeringVariant');select.replaceChildren();variants.forEach((v,i)=>select.add(new Option(variantLabel(v),String(i))));select._variants=variants;
-  $('engineeringTitle').textContent=m?.model||'—';$('engineeringTutorial').textContent='工程文件来自 Pentax Labs 当前 engineering_payload。\n选择入口后直接选择 SD 卡根目录写入；网页不会修改照片或其他文件。';
+  $('engineeringTitle').textContent=m?.model||'—';$('engineeringTutorial').textContent=tr('工程文件来自 Pentax Labs 当前 engineering_payload。\n选择入口后直接选择 SD 卡根目录写入；网页不会修改照片或其他文件。','Engineering files come from the current Pentax Labs engineering payload.\nChoose an entry and then select the SD-card root. Photos and unrelated files are not modified.');
 }
 async function exportEngineering(){
   const variants=$('engineeringVariant')._variants||[],v=variants[Number($('engineeringVariant').value)||0];if(!v)return;
@@ -488,12 +567,15 @@ function drawCpCurve(){
 }
 function renderCpUi(){
   if(!state.cpNative)return;
+  document.querySelectorAll('[data-cp-inspector]').forEach(b=>b.classList.toggle('on',b.dataset.cpInspector===state.cpInspector));
+  document.querySelectorAll('[data-cp-inspector-pane]').forEach(p=>p.classList.toggle('active',p.dataset.cpInspectorPane===state.cpInspector));
   $('cpMode').value=state.cpMode;const select=$('cpBase');select.replaceChildren();cpModeData().bases.forEach((base,index)=>select.add(new Option(`${String(base).padStart(2,'0')} · ${state.cpNative.labels[String(base)]}`,String(index))));select.value=String(state.cpBaseIndex);
   renderCpMatrix();
   const controls=$('cpNativeControls');controls.replaceChildren();const limits=cpModeData().limits;
-  state.cpNative.control_labels.forEach((label,index)=>{const wrap=document.createElement('label');wrap.className='control';const head=document.createElement('span'),name=document.createElement('span'),out=document.createElement('output');name.textContent=label;out.textContent=String(state.cpControls[index]);head.append(name,out);const slider=document.createElement('input');slider.type='range';slider.min=limits[index][0];slider.max=limits[index][1];slider.step='1';slider.value=state.cpControls[index];slider.oninput=()=>{state.cpControls[index]=Number(slider.value);out.textContent=slider.value;renderCp();};wrap.append(head,slider);controls.appendChild(wrap);});
+  state.cpNative.control_labels.forEach((label,index)=>{const wrap=document.createElement('label');wrap.className='control';const head=document.createElement('span'),name=document.createElement('span'),out=document.createElement('output');name.textContent=tr(label,label);out.textContent=String(state.cpControls[index]);head.append(name,out);const slider=document.createElement('input');slider.type='range';slider.min=limits[index][0];slider.max=limits[index][1];slider.step='1';slider.value=state.cpControls[index];slider.oninput=()=>{state.cpControls[index]=Number(slider.value);out.textContent=slider.value;renderCp();};wrap.append(head,slider);controls.appendChild(wrap);});
   ['R','G','B'].forEach((name,index)=>{$('cpCurve'+name).value=state.cpCurves[index];});$('cpCurveCode').textContent=state.cpCurves;
   $('cpChannelTabs').querySelectorAll('button').forEach(b=>b.classList.toggle('on',Number(b.dataset.cpChannel)===state.cpChannel));drawCpCurve();
+  translateStatic(document.body);
 }
 function srgbDecode(v){v=Math.max(0,Math.min(1,v));return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;}
 function srgbEncode(v){v=Math.max(0,Math.min(1,v));return v<=.0031308?v*12.92:1.055*(v**(1/2.4))-.055;}
@@ -519,6 +601,10 @@ function cpRecipeBytes(){
 }
 function installEvents(){
   $('navToggle').onclick=openNav;$('navMask').onclick=closeNav;$('homeBtn').onclick=()=>goPage('filters');
+  $('settingsBtn').onclick=openSettings;$('settingsClose').onclick=closeSettings;$('settingsOverlay').onclick=e=>{if(e.target===$('settingsOverlay'))closeSettings();};
+  document.querySelectorAll('[data-settings-page]').forEach(b=>b.onclick=()=>{state.settingsPage=b.dataset.settingsPage;renderSettings();});
+  $('languageSelect').onchange=()=>{state.language=$('languageSelect').value;persist();applyLanguage();};
+  document.querySelectorAll('[data-cp-inspector]').forEach(b=>b.onclick=()=>{state.cpInspector=b.dataset.cpInspector==='curve'?'curve':'basic';persist();renderCpUi();});
   $('factoryTab').onclick=()=>{state.tab='factory';persist();renderFilterList();};$('userTab').onclick=()=>{state.tab='user';persist();renderFilterList();};$('filterSearch').oninput=renderFilterList;
   $('refreshBtn').onclick=renderFilterList;
   $('importBtn').onclick=()=>$('lutFile').click();$('lutFile').onchange=e=>importFiles(e.target.files);$('photoBtn').onclick=()=>$('photoFile').click();$('photoFile').onchange=async e=>{if(e.target.files[0])try{await loadPhoto(e.target.files[0]);}catch(x){notify('照片读取失败：'+x.message);}e.target.value='';};
@@ -530,17 +616,28 @@ function installEvents(){
   $('resetMatrixBtn').onclick=()=>{const slot=currentSlot(),base=currentBase();slot.matrix=base.matrix.map(r=>r.slice());slot.colorBaseMatrix=slot.matrix.map(r=>r.slice());slot.color_sat=1;slot.color_hue=0;persist();refreshControls();queueRender();};
   document.querySelectorAll('.right-tabs button').forEach(b=>b.onclick=()=>setInspector(b.dataset.inspector));
   $('channelTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.channel=Number(b.dataset.channel);refreshControls();});
-  $('resetCurveBtn').onclick=()=>{const slot=currentSlot(),base=currentBase();if(state.channel===0)slot.masterCurve=base.masterCurve.slice();else slot.curves[state.channel-1]=base.curves[state.channel-1].slice();persist();drawCurve();queueRender();};
-  $('linearCurveBtn').onclick=()=>{const before=curveView(),target=state.curveProfiles.axis.slice();applyRelativeCurve(currentSlot(),state.natural,state.channel,target,before,state.curveProfiles);persist();drawCurve();queueRender();};
-  $('addCurvePointBtn').onclick=()=>{state.curveAddMode=!state.curveAddMode;$('addCurvePointBtn').classList.toggle('prominent',state.curveAddMode);notify(state.curveAddMode?'在曲线上点击添加节点':'已取消加点');};
+  $('resetCurveBtn').onclick=()=>{const slot=currentSlot(),base=currentBase();if(state.channel===0)slot.masterCurve=base.masterCurve.slice();else slot.curves[state.channel-1]=base.curves[state.channel-1].slice();state.curveAnchors[state.active][state.channel]=[];state.curveDisplays[state.active][state.channel]=null;persist();drawCurve();queueRender();};
+  $('linearCurveBtn').onclick=()=>{const before=curveView(),target=state.curveProfiles.axis.slice();if(state.channel===0)currentSlot().masterCurve=currentSlot().masterCurve.slice();else currentSlot().curves[state.channel-1]=currentSlot().curves[state.channel-1].slice();applyRelativeCurve(currentSlot(),state.natural,state.channel,target,before,state.curveProfiles);state.curveDisplays[state.active][state.channel]=target.slice();state.curveAnchors[state.active][state.channel]=[[0,0],[1,1]];persist();drawCurve();queueRender();};
+  $('addCurvePointBtn').onclick=()=>{state.curveAddMode=!state.curveAddMode;$('addCurvePointBtn').classList.toggle('prominent',state.curveAddMode);notify(tr(state.curveAddMode?'在曲线上点击添加节点':'已取消加点',state.curveAddMode?'Click the curve to add a point':'Add-point mode cancelled'));};
   const curve=$('curveCanvas'),pos=e=>{const r=curve.getBoundingClientRect();return {index:Math.max(0,Math.min(256,(e.clientX-r.left)/r.width*256)),value:Math.max(0,Math.min(1,1-(e.clientY-r.top)/r.height))};};
-  const nearestCurveAnchor=e=>{const r=curve.getBoundingClientRect(),anchors=state.curveAnchors[state.active][state.channel],p=pos(e);let best=-1,dist=18;anchors.forEach(([x,y],i)=>{const dx=(x-p.index/256)*r.width,dy=(y-p.value)*r.height,d=Math.hypot(dx,dy);if(d<dist){dist=d;best=i;}});return best;};
-  const addCurveAnchor=e=>{const p=pos(e),x=p.index/256,y=p.value,anchors=state.curveAnchors[state.active][state.channel];anchors.push([x,y]);anchors.sort((a,b)=>a[0]-b[0]);state.curveAddMode=false;$('addCurvePointBtn').classList.remove('prominent');const before=curveView(),native=state.channel===0?currentSlot().masterCurve.slice():currentSlot().curves[state.channel-1].slice(),target=smoothCurveTarget(before,x,y);if(state.channel===0)currentSlot().masterCurve=native;else currentSlot().curves[state.channel-1]=native;applyRelativeCurve(currentSlot(),state.natural,state.channel,target,before,state.curveProfiles);persist();drawCurve();queueRender();};
-  curve.onpointerdown=e=>{if(e.button!==0)return;if(state.curveAddMode){addCurveAnchor(e);return;}curve.setPointerCapture(e.pointerId);curvePointer={...pos(e),display:curveView(),native:state.channel===0?currentSlot().masterCurve.slice():currentSlot().curves[state.channel-1].slice(),anchorIndex:nearestCurveAnchor(e)};};
-  curve.onpointermove=e=>{if(!curvePointer||!curve.hasPointerCapture(e.pointerId))return;const next=pos(e),x=next.index/256,target=smoothCurveTarget(curvePointer.display,x,next.value);if(state.channel===0)currentSlot().masterCurve=curvePointer.native.slice();else currentSlot().curves[state.channel-1]=curvePointer.native.slice();applyRelativeCurve(currentSlot(),state.natural,state.channel,target,curvePointer.display,state.curveProfiles);if(curvePointer.anchorIndex>=0){const anchors=state.curveAnchors[state.active][state.channel];anchors[curvePointer.anchorIndex]=[x,next.value];anchors.sort((a,b)=>a[0]-b[0]);}drawCurve();queueRender();};
+  const nearestCurveAnchor=e=>{const r=curve.getBoundingClientRect(),display=curveView(),anchors=curvePoints(display),p=pos(e);let best=-1,dist=18;anchors.forEach(([x,y],i)=>{const dx=(x-p.index/256)*r.width,dy=(y-p.value)*r.height,d=Math.hypot(dx,dy);if(d<dist){dist=d;best=i;}});return best;};
+  const addCurveAnchor=e=>{const p=pos(e),x=p.index/256,display=curveView(),anchors=ensureCurvePoints(display);if(anchors.some(([px])=>Math.abs(px-x)<.02))return;anchors.push([x,sampleCurve(display,x)]);anchors.sort((a,b)=>a[0]-b[0]);state.curveDisplays[state.active][state.channel]=display.slice();state.curveAddMode=false;$('addCurvePointBtn').classList.remove('prominent');persist();drawCurve();};
+  curve.onpointerdown=e=>{
+    if(e.button!==0)return;if(state.curveAddMode){addCurveAnchor(e);return;}
+    const p=pos(e),display=curveView(),points=ensureCurvePoints(display),r=curve.getBoundingClientRect(),anchorIndex=nearestCurveAnchor(e),curveY=sampleCurve(display,p.index/256),distance=Math.abs((curveY-p.value)*r.height);
+    if(anchorIndex<0&&distance>16)return;
+    curve.setPointerCapture(e.pointerId);curvePointer={display,native:state.channel===0?currentSlot().masterCurve.slice():currentSlot().curves[state.channel-1].slice(),points:points.map(x=>x.slice()),anchorIndex,mode:anchorIndex>=0?'point':'body',grabX:p.index/256,grabY:curveY,pressY:p.value};
+  };
+  curve.onpointermove=e=>{
+    if(!curvePointer||!curve.hasPointerCapture(e.pointerId))return;const next=pos(e),x=next.index/256;let target;
+    if(curvePointer.mode==='point'){
+      const pts=curvePointer.points.map(p=>p.slice()),i=curvePointer.anchorIndex,lo=i>0?pts[i-1][0]+.01:0,hi=i<pts.length-1?pts[i+1][0]-.01:1,xx=Math.max(lo,Math.min(hi,x)),yy=Math.max(i>0?pts[i-1][1]:0,Math.min(i<pts.length-1?pts[i+1][1]:1,next.value));pts[i]=[xx,yy];target=smoothCurveShape(curvePointer.display,pts);state.curveAnchors[state.active][state.channel]=pts;
+    }else target=curveBodyTarget(curvePointer.display,curvePointer.points,curvePointer.grabX,curvePointer.grabY+next.value-curvePointer.pressY);
+    if(state.channel===0)currentSlot().masterCurve=curvePointer.native.slice();else currentSlot().curves[state.channel-1]=curvePointer.native.slice();applyRelativeCurve(currentSlot(),state.natural,state.channel,target,curvePointer.display,state.curveProfiles);state.curveDisplays[state.active][state.channel]=target.slice();drawCurve();queueRender();
+  };
   const endCurve=e=>{if(curve.hasPointerCapture(e.pointerId))curve.releasePointerCapture(e.pointerId);curvePointer=null;persist();};curve.onpointerup=endCurve;curve.onpointercancel=endCurve;
   curve.ondblclick=e=>{e.preventDefault();addCurveAnchor(e);};
-  curve.oncontextmenu=e=>{e.preventDefault();const index=nearestCurveAnchor(e);if(index>=0){state.curveAnchors[state.active][state.channel].splice(index,1);drawCurve();}};
+  curve.oncontextmenu=e=>{e.preventDefault();const display=curveView(),points=ensureCurvePoints(display),index=nearestCurveAnchor(e);if(index>0&&index<points.length-1){points.splice(index,1);persist();drawCurve();}};
   $('cameraModeBtn').onclick=()=>{state.previewMode='camera';refreshControls();queueRender();};$('lutModeBtn').onclick=()=>{if(!currentSlot().sourceLut)return notify('当前滤镜没有保留原始 CUBE');state.previewMode='lut';refreshControls();queueRender();};
   $('toggleCompare').onclick=()=>{state.compareMode=(state.compareMode+1)%3;persist();refreshControls();queueRender();};
   $('exportScriptBtn').onclick=()=>exportCameraScript();
@@ -560,11 +657,11 @@ function installEvents(){
 async function start(){
   installEvents();
   try{
-    setStatus('加载 Beta81 Web');await loadLibraries();initializeSlots();rebuildFactorySlots();
+    setStatus(tr('加载 Beta81 Web','Loading Beta81 Web'));await loadLibraries();initializeSlots();rebuildFactorySlots();
     const [k1iiRuntime,k1Runtime]=await Promise.all([loadBuiltinRuntime('k1ii'),loadBuiltinRuntime('k1')]);
     state.runtimeBases.k1ii=k1iiRuntime;state.runtimeBases.k1=k1Runtime;
     const hash=location.hash.replace(/^#/,'');if(FEATURES.some(x=>x[0]===hash))state.currentPage=hash;
-    $('cameraModel').value=state.cameraModel;chartSource();setupEngineering();renderCpUi();refresh();goPage(state.currentPage);persist();
+    $('cameraModel').value=state.cameraModel;chartSource();setupEngineering();renderCpUi();refresh();goPage(state.currentPage);renderSettings();translateStatic(document.body);persist();
     try{
       state.db=await openDatabase();for(const item of await dbAll()){
         if(item?.type==='sd-root'&&item.handle)state.sdRoot=item.handle;
@@ -572,10 +669,10 @@ async function start(){
       }
       hydrateUserSources();refresh();persist();
     }catch(e){console.warn('IndexedDB unavailable',e);notify('浏览器持久存储不可用，本次会话仍可使用');}
-    let ready='就绪 · Beta81 Web';
+    let ready=tr('就绪','Ready')+' · Beta81 Web';
     if(state.sdRoot&&await state.sdRoot.queryPermission?.({mode:'readwrite'})==='granted')
       ready+=' · SD '+(/dcram/i.test(state.sdRoot.name||'')?'DCRAM':(state.sdRoot.name||''));
     setStatus(ready);
-  }catch(e){console.error(e);setStatus('初始化失败');notify(e.message||String(e));}
+  }catch(e){console.error(e);setStatus(tr('初始化失败','Initialization failed'));notify(e.message||String(e));}
 }
 start();

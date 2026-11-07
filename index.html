@@ -57,7 +57,6 @@
           <section class="viewer panel" id="viewerPanel">
             <div class="stage" id="photoStage">
               <canvas id="previewCanvas"></canvas>
-              <div class="drop-hint" id="dropHint">拖入 .cube 或照片</div>
               <div class="preview-busy" id="previewBusy">预览正在更新…</div>
             </div>
             <div class="viewer-toolbar">
@@ -140,17 +139,28 @@
           <div class="cp-grid">
             <div class="tool-card cp-preview"><canvas id="cpCanvas"></canvas><div id="cpEmpty">选择照片开始</div></div>
             <div class="tool-card cp-controls">
-              <button class="studio-button prominent block" id="cpPhotoBtn">选择照片</button>
-              <div class="cp-select-row"><label>生成模式<select id="cpMode"><option value="random">随机预设</option><option value="extended">扩展基底</option></select></label><label>原厂矩阵<select id="cpBase"></select></label></div>
-              <div class="subhead-line cp-matrix-title"><h3>3 × 3 原厂矩阵 / Q8</h3><span id="cpMatrixNote">可编辑 · 自动吸附原厂银行</span></div>
-              <div class="matrix-box cp-matrix-box"><div class="matrix-grid" id="cpMatrixGrid"></div></div>
-              <div id="cpNativeControls" class="cp-native-controls"></div>
-              <div class="subhead-line cp-curve-title"><h3>RGB 原厂曲线</h3><span id="cpCurveCode">210</span></div>
-              <div class="cp-channel-row" id="cpChannelTabs"><button data-cp-channel="0" class="on">R</button><button data-cp-channel="1">G</button><button data-cp-channel="2">B</button></div>
-              <canvas id="cpCurveCanvas" class="cp-curve-canvas" width="640" height="320"></canvas>
-              <div class="cp-curve-selectors"><label>R<select id="cpCurveR"><option>0</option><option>1</option><option>2</option></select></label><label>G<select id="cpCurveG"><option>0</option><option>1</option><option>2</option></select></label><label>B<select id="cpCurveB"><option>0</option><option>1</option><option>2</option></select></label></div>
-              <button class="studio-button neutral block" id="cpRecipeBtn">导出 10B 机内配方</button>
-              <button class="studio-button prominent block" id="cpExportBtn">导出当前预览 PNG</button>
+              <div class="cp-control-head"><strong>调整工具</strong><span>ROM</span></div>
+              <div class="cp-inspector-tabs" id="cpInspectorTabs">
+                <button class="on" data-cp-inspector="basic">色彩调节</button>
+                <button data-cp-inspector="curve">通道曲线</button>
+              </div>
+              <div class="cp-inspector-body">
+                <div class="cp-inspector-pane active" data-cp-inspector-pane="basic">
+                  <button class="studio-button prominent block" id="cpPhotoBtn">选择照片</button>
+                  <div class="cp-select-row"><label>生成模式<select id="cpMode"><option value="random">随机预设</option><option value="extended">扩展基底</option></select></label><label>原厂矩阵基底<select id="cpBase"></select></label></div>
+                  <div class="subhead-line cp-matrix-title"><h3>3 × 3 原厂矩阵 / Q8</h3><span id="cpMatrixNote">可编辑 · 自动吸附原厂银行</span></div>
+                  <div class="matrix-box cp-matrix-box"><div class="matrix-grid" id="cpMatrixGrid"></div></div>
+                  <div id="cpNativeControls" class="cp-native-controls"></div>
+                </div>
+                <div class="cp-inspector-pane" data-cp-inspector-pane="curve">
+                  <div class="subhead-line cp-curve-title"><h3>RGB 通道曲线</h3><span id="cpCurveCode">210</span></div>
+                  <div class="cp-channel-row" id="cpChannelTabs"><button data-cp-channel="0" class="on">R</button><button data-cp-channel="1">G</button><button data-cp-channel="2">B</button></div>
+                  <canvas id="cpCurveCanvas" class="cp-curve-canvas" width="640" height="320"></canvas>
+                  <p class="hint">原厂 ROM 仅提供 0、1、2 三条曲线索引，调整后可机内导出。</p>
+                  <div class="cp-curve-selectors"><label>R<select id="cpCurveR"><option>0</option><option>1</option><option>2</option></select></label><label>G<select id="cpCurveG"><option>0</option><option>1</option><option>2</option></select></label><label>B<select id="cpCurveB"><option>0</option><option>1</option><option>2</option></select></label></div>
+                </div>
+              </div>
+              <div class="cp-export-row"><button class="studio-button neutral" id="cpRecipeBtn">导出 10B 机内配方</button><button class="studio-button prominent" id="cpExportBtn">导出当前预览 PNG</button></div>
             </div>
           </div>
         </div>
@@ -184,8 +194,35 @@
 
     <footer class="foot">
       <div id="footerContext">机型 <strong id="footerCamera">PENTAX K-1 II</strong><i></i> 当前滤镜 <strong id="footerFilter">—</strong></div>
-      <div id="footerStatus">正在初始化</div>
+      <div class="footer-actions"><div id="footerStatus">正在初始化</div><button id="settingsBtn" class="settings-button" title="设置" aria-label="设置">⚙</button></div>
     </footer>
+  </div>
+
+  <div class="settings-overlay" id="settingsOverlay" hidden>
+    <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <aside class="settings-nav">
+        <h2 id="settingsTitle">设置</h2>
+        <button class="on" data-settings-page="language"><span>◈</span><b>语言与主题</b></button>
+        <button data-settings-page="guide"><span>◧</span><b>使用指南</b></button>
+        <button data-settings-page="about"><span>ⓘ</span><b>关于</b></button>
+        <small>PENTAX LABS · WEB</small>
+      </aside>
+      <div class="settings-main">
+        <header><h2 id="settingsPageTitle">语言 / 主题</h2><button id="settingsClose" class="settings-close" aria-label="关闭">×</button></header>
+        <div class="settings-page active" data-settings-pane="language">
+          <h3>应用语言</h3><div class="settings-divider"></div>
+          <label class="settings-row"><span>语言</span><select id="languageSelect"></select></label>
+          <h3>工作区外观</h3><div class="settings-divider"></div>
+          <p class="settings-label">强调色</p><div class="accent-row" id="accentRow"></div>
+          <p class="settings-note">自动检测浏览器语言；手动选择后会记住。强调色立即应用到整个网页。</p>
+        </div>
+        <div class="settings-page" data-settings-pane="guide"><div class="guide-list" id="guideList"></div></div>
+        <div class="settings-page" data-settings-pane="about">
+          <h3>PENTAX LABS</h3>
+          <p class="settings-note about-copy">这是一款由个人独立开发、面向摄影爱好者的非官方相机工具。它并非理光映像或 PENTAX 官方产品，也未获得其认可、赞助或授权。</p>
+        </div>
+      </div>
+    </section>
   </div>
 
   <input type="file" id="lutFile" accept=".cube,.CUBE,text/plain" multiple hidden>

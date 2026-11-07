@@ -14,6 +14,10 @@ Pentax Labs Beta81 的浏览器版。桌面程序仍是算法和机内脚本真�
 - *ist D 预览修复逆矩阵转置错误，并加入桌面/Web parity；Natural/Monochrome/Kyushu 与桌面 RGB8 逐值 `max=0/255`。
 - Web CUBE 拟合升级为与桌面 R367 对齐的 25³ solver，并改用 canonical Natural。17 个 `PENTAX LUT_33` 生产 LUT 与桌面 final ΔE 平均绝对差约 `0.039`。
 - 生产工厂库已从 `PENTAX LUT_33` 重新生成；网页不再展示旧库中遗留的过时模型色差。
+- 多语言改为与桌面同源：Web 构建从 `I18n.js + HantData.js` 生成 `i18n.js`，支持 system/简中/繁中/English/日/西/法/德/意/葡/韩/俄/越；system 自动读取浏览器语言。右下角设置可手动切换并记忆，同时提供桌面同组六种强调色。
+- 正负逆冲右侧改为桌面 `CpWorkbench` 的“色彩调节 / 通道曲线”两页结构；Matrix、五项机内参数与 RGB ROM 曲线不再混在一根滚动条。
+- 自定义滤镜曲线改为桌面同类 smooth-intent：先平滑拟合可见曲线，默认只显示端点；可直接拖曲线主体做大范围平滑形变，双击/加点增加用户手柄，右键删除手柄不改当前效果。
+- 照片中央拖入提示已删除；顶部槽位勾选、滑杆、强调色等细节继续向桌面 Beta81 对齐。
 
 ## SD 写入
 
