@@ -29,6 +29,18 @@ export function configureDisplayKernel(kernel, istdNaturalGamma=null) {
   }
 }
 
+export function canonicalNaturalSlot(cameraModel='k1ii'){
+  if(!DISPLAY_KERNEL)throw Error('display kernel not configured');
+  return {
+    name:'Natural',enabled:true,
+    matrix:DISPLAY_KERNEL.natural_matrix_q8.map(row=>row.map(Number)),
+    colorBaseMatrix:DISPLAY_KERNEL.natural_matrix_q8.map(row=>row.map(Number)),
+    curves:DISPLAY_KERNEL.natural_camera_curves_u14.map(row=>row.map(Number)),
+    masterCurve:identityCurve(),preset_key:'natural',matrix_domain:'natural_relative',camera_model:cameraModel,
+    brightness_ev:0,contrast:0,color_hue:0,color_sat:1,user_preset_id:'',fit_report:{},sourceLut:null,
+  };
+}
+
 export function identityCurve() {
   return Array.from({length:NODES}, (_, index) => index * WHITE / (NODES - 1));
 }
@@ -65,7 +77,7 @@ export function slotFromFactory(row, cameraModel='k1ii') {
       masterCurve:gamma.length===4096?gamma:Array.from({length:4096},(_,i)=>i*WHITE/4095),
       preset_key:'istd:'+row.key,matrix_domain:'legacy_native',camera_model:'istd',
       brightness_ev:0,contrast:0,color_hue:0,color_sat:1,user_preset_id:'',
-      fit_report:{source:'Pentax Labs beta80 *ist D production adaptation'},sourceLut:null,
+      fit_report:{mean_de00:Number(row.istd_de00||0),p95_de00:Number(row.istd_p95||0),source:'Pentax Labs Beta81 *ist D production adaptation'},sourceLut:null,
     };
   }
   return {
@@ -86,7 +98,7 @@ export function slotFromFactory(row, cameraModel='k1ii') {
     fit_report: {
       mean_de00: Number(row.model_de00 || 0),
       p95_de00: Number(row.model_p95 || 0),
-      source: 'Pentax Labs beta80 production factory library',
+      source: 'Pentax Labs Beta81 R367 production factory library',
     },
     sourceLut: null,
   };
@@ -510,7 +522,9 @@ export function applyPreparedRelative(prepared, rgb) {
   if(prepared.kind==='istd'){
     const inv=invert3(ISTD_FACTORY_MATRIX.map(row=>row.map(v=>v/256)));
     const index=rgb.map(value=>ISTD_DISPLAY_INDEX[Math.max(0,Math.min(255,Math.round(clamp01(value)*255)))]);
-    const sensor=[0,1,2].map(c=>index[0]*inv[0][c]+index[1]*inv[1][c]+index[2]*inv[2][c]);
+    // Desktop istd.sensor_proxy uses row-vector index @ inv(factory).T.
+    // That is the dot product of each *row* of inv(factory) with index.
+    const sensor=inv.map(row=>row[0]*index[0]+row[1]*index[1]+row[2]*index[2]);
     const mapped=prepared.matrix.map(row=>clamp01(row[0]*sensor[0]+row[1]*sensor[1]+row[2]*sensor[2]));
     return mapped.map(value=>Number(prepared.gamma[Math.max(0,Math.min(4095,Math.round(value*4095)))])/255);
   }
@@ -646,30 +660,106 @@ function fitCurve(xs, ys, weights) {
     .map(value => Math.round(value * WHITE));
 }
 
-function sampleTarget(cube, naturalSlot, grid=13) {
-  const samples = [];
-  const targetStage = [];
-  const weights = [];
-  const add = (rgb, weight) => {
-    const desired = evaluateCube(cube, rgb);
-    const base = nativeStageAt(naturalSlot, rgb);
-    samples.push(rgb);
-    targetStage.push(desired.map((value, channel) =>
-      clamp01(value - rgb[channel] + base[channel])));
-    weights.push(weight);
-  };
+function naturalInverseContinuous(rgb){
+  const scale=Number(DISPLAY_KERNEL?.scale||16380),tables=DISPLAY_KERNEL?.natural_table_u16;
+  if(!tables)return rgb.slice();
+  return rgb.map((value,channel)=>{
+    const table=tables[channel],target=clamp01(value)*scale;let lo=0,hi=table.length-1;
+    while(lo<hi){const mid=(lo+hi)>>1;if(Number(table[mid])<target)lo=mid+1;else hi=mid;}
+    if(lo===0)return 0;const a=Number(table[lo-1]),b=Number(table[lo]);
+    return clamp01((lo-1+(b>a?(target-a)/(b-a):0))/(table.length-1));
+  });
+}
+
+function naturalForwardContinuous(rgb){
+  const scale=Number(DISPLAY_KERNEL?.scale||16380),tables=DISPLAY_KERNEL?.natural_table_u16;
+  if(!tables)return rgb.slice();
+  return rgb.map((value,channel)=>interpolateArray(tables[channel],clamp01(value))/scale);
+}
+
+function monotoneProjection256(values,weights){
+  const slope=1/16383,adjusted=values.map((v,i)=>v-slope*i),projected=isotonic(adjusted,weights);
+  return projected.map((v,i)=>clamp01(v+slope*i));
+}
+
+function fitSmoothCurveR367(xs,target,baseline,weights){
+  const diagonal=new Float64Array(256),upper=new Float64Array(255),rhs=new Float64Array(256);
+  for(let n=0;n<xs.length;n++){
+    const x=clamp01(xs[n])*255,i=Math.min(254,Math.floor(x)),f=x-i,a=1-f,b=f,w=weights[n];
+    const residual=target[n]-(baseline[i]*a+baseline[i+1]*b);
+    diagonal[i]+=a*a*w;diagonal[i+1]+=b*b*w;upper[i]+=a*b*w;rhs[i]+=a*residual*w;rhs[i+1]+=b*residual*w;
+  }
+  const nodeWeights=Array.from(diagonal);const strength=Math.max(2,weights.reduce((a,b)=>a+b,0)/15625*10);
+  for(let i=0;i<256;i++)diagonal[i]+=.15*strength+(i===0||i===255?strength:2*strength);
+  for(let i=0;i<255;i++)upper[i]-=strength;
+  for(let i=1;i<256;i++){const scale=upper[i-1]/diagonal[i-1];diagonal[i]-=scale*upper[i-1];rhs[i]-=scale*rhs[i-1];}
+  const correction=new Float64Array(256);correction[255]=rhs[255]/diagonal[255];
+  for(let i=254;i>=0;i--)correction[i]=(rhs[i]-upper[i]*correction[i+1])/diagonal[i];
+  return monotoneProjection256(baseline.map((v,i)=>v+correction[i]),nodeWeights.map(v=>Math.max(v,.1))).map(v=>Math.round(v*WHITE));
+}
+
+function percentile(values,p){
+  const a=values.slice().sort((x,y)=>x-y),pos=(a.length-1)*p,lo=Math.floor(pos),hi=Math.ceil(pos);return a[lo]*(hi-pos)+a[hi]*(pos-lo);
+}
+
+function weightedPercentile(values,weights,p){
+  const pairs=values.map((v,i)=>[v,weights[i]]).sort((a,b)=>a[0]-b[0]),total=weights.reduce((a,b)=>a+b,0),target=total*p;let sum=0;
+  for(const [value,weight] of pairs){sum+=weight;if(sum>=target)return value;}return pairs.at(-1)?.[0]??0;
+}
+
+function refitMatrixR367(raw,targetStage,curves,weights,naturalSlot){
+  const toneSlot={...canonicalNaturalSlot(),curves:curves.map(row=>row.slice())},tones=p317Tones(toneSlot),matrix=[[256,0,0],[0,256,0],[0,0,256]];
+  for(let c=0;c<3;c++){
+    const others=[0,1,2].filter(i=>i!==c),features=[],target=[],useWeights=[];
+    for(let i=0;i<raw.length;i++){
+      const wantedValue=targetStage[i][c];if(wantedValue<=.015||wantedValue>=.985)continue;
+      const wanted=inverseCurve(tones[c],wantedValue);
+      features.push([raw[i][others[0]]-raw[i][c],raw[i][others[1]]-raw[i][c]]);target.push(wanted-raw[i][c]);useWeights.push(weights[i]);
+    }
+    if(target.length<50)continue;const coef=solve2(features,target,useWeights);matrix[c][others[0]]=Math.round(coef[0]*256);matrix[c][others[1]]=Math.round(coef[1]*256);matrix[c][c]=256-matrix[c][others[0]]-matrix[c][others[1]];
+  }
+  return normalizeRows(matrix).map(row=>row.map(v=>Math.max(-2048,Math.min(2047,v))));
+}
+
+function srgbLab(rgb){
+  const lin=rgb.map(v=>{v=clamp01(v);return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;});
+  const x=(.4124564*lin[0]+.3575761*lin[1]+.1804375*lin[2])/.95047;
+  const y=(.2126729*lin[0]+.7151522*lin[1]+.072175*lin[2]);
+  const z=(.0193339*lin[0]+.119192*lin[1]+.9503041*lin[2])/1.08883;
+  const f=v=>v>216/24389?Math.cbrt(v):(24389/27*v+16)/116,fx=f(x),fy=f(y),fz=f(z);
+  return [116*fy-16,500*(fx-fy),200*(fy-fz)];
+}
+
+function de00(l1,l2){
+  const [L1,a1,b1]=l1,[L2,a2,b2]=l2,C1=Math.hypot(a1,b1),C2=Math.hypot(a2,b2),C=(C1+C2)/2;
+  const G=.5*(1-Math.sqrt(C**7/(C**7+25**7))),ap1=(1+G)*a1,ap2=(1+G)*a2,cp1=Math.hypot(ap1,b1),cp2=Math.hypot(ap2,b2);
+  const hp=(a,b)=>{let h=Math.atan2(b,a)*180/Math.PI;if(h<0)h+=360;return h;},h1=hp(ap1,b1),h2=hp(ap2,b2);
+  const dL=L2-L1,dC=cp2-cp1,dh=(cp1*cp2===0)?0:(Math.abs(h2-h1)<=180?h2-h1:(h2<=h1?h2-h1+360:h2-h1-360));
+  const dH=2*Math.sqrt(cp1*cp2)*Math.sin((dh*Math.PI/180)/2),Lm=(L1+L2)/2,Cm=(cp1+cp2)/2;
+  const hm=(cp1*cp2===0)?h1+h2:(Math.abs(h1-h2)<=180?(h1+h2)/2:(h1+h2<360?(h1+h2+360)/2:(h1+h2-360)/2));
+  const T=1-.17*Math.cos((hm-30)*Math.PI/180)+.24*Math.cos(2*hm*Math.PI/180)+.32*Math.cos((3*hm+6)*Math.PI/180)-.20*Math.cos((4*hm-63)*Math.PI/180);
+  const dTheta=30*Math.exp(-(((hm-275)/25)**2)),Rc=2*Math.sqrt(Cm**7/(Cm**7+25**7)),Sl=1+.015*(Lm-50)**2/Math.sqrt(20+(Lm-50)**2),Sc=1+.045*Cm,Sh=1+.015*Cm*T,Rt=-Math.sin(2*dTheta*Math.PI/180)*Rc;
+  return Math.sqrt((dL/Sl)**2+(dC/Sc)**2+(dH/Sh)**2+Rt*(dC/Sc)*(dH/Sh));
+}
+
+function sampleTarget(cube, naturalSlot, grid=25) {
+  const samples=[],desired=[],untoned=[],reference=[],baseWeights=[];
+  const add=(rgb,weight)=>{const latent=naturalInverseContinuous(rgb),target=evaluateCube(cube,rgb);samples.push(rgb);desired.push(target);untoned.push(latent);reference.push(naturalForwardContinuous(latent));baseWeights.push(weight);};
   for (let b=0; b<grid; b++) {
     for (let g=0; g<grid; g++) {
       for (let r=0; r<grid; r++) {
-        add([r/(grid-1),g/(grid-1),b/(grid-1)], 1);
+        add([r/(grid-1),g/(grid-1),b/(grid-1)],1);
       }
     }
   }
   for (let i=0; i<256; i++) {
     const value = i / 255;
-    add([value,value,value], 12);
+    add([value,value,value],64);
   }
-  return {samples,targetStage,weights};
+  const focus=desired.map(row=>{const level=(row[0]+row[1]+row[2])/3;return 1/Math.sqrt(.08+level)*(1+1.15*Math.exp(-.5*((level-.30)/.14)**2));});
+  const rms=Math.sqrt(focus.reduce((s,v)=>s+v*v,0)/focus.length),weights=baseWeights.map((w,i)=>w*focus[i]/rms);
+  const targetStage=desired.map((row,i)=>row.map((v,c)=>clamp01(v-samples[i][c]+reference[i][c])));
+  return {samples,desired,untoned,reference,targetStage,weights,baseWeights,volumeCount:grid**3};
 }
 
 function mixedValues(matrix, samples) {
@@ -678,74 +768,62 @@ function mixedValues(matrix, samples) {
 }
 
 export function fitCubeQuick(cube, naturalSlot, cameraModel='k1ii') {
+  // Fitting must use the canonical desktop Natural control, not the published
+  // factory-library Natural preset (which is itself an adapted/rebuilt look).
+  naturalSlot=canonicalNaturalSlot(cameraModel);
   const sampled = sampleTarget(cube, naturalSlot);
-  const samples = sampled.samples;
-  const targetStage = sampled.targetStage;
-  const weights = sampled.weights;
-  const naturalCurves = naturalSlot.curves.map(curve =>
-    curve.map(value => clamp01(value / WHITE)));
-  let targetPre = targetStage.map(row =>
-    row.map((value, channel) => inverseCurve(naturalCurves[channel], value)));
-  let matrix = fitMatrix(samples, targetPre, weights);
-  let curves = naturalSlot.curves.map(row => row.slice());
-  for (let iteration=0; iteration<2; iteration++) {
-    const mixed = mixedValues(matrix, samples);
-    curves = [0,1,2].map(channel => fitCurve(
-      mixed.map(row => row[channel]),
-      targetStage.map(row => row[channel]),
-      weights));
-    const normalized = curves.map(curve => curve.map(value => clamp01(value / WHITE)));
-    targetPre = targetStage.map(row =>
-      row.map((value, channel) => inverseCurve(normalized[channel], value)));
-    matrix = fitMatrix(samples, targetPre, weights);
+  const {samples,desired,untoned,targetStage,weights,baseWeights,volumeCount}=sampled,naturalMatrix=naturalSlot.matrix.map(r=>r.map(v=>v/256)),invNatural=invert3(naturalMatrix),naturalBaseline=naturalSlot.curves.map(smoothFactoryApprox);
+  const raw=untoned.map(row=>invNatural.map(m=>m[0]*row[0]+m[1]*row[1]+m[2]*row[2]));
+  const preTone=targetStage.map(row=>row.map((v,c)=>naturalInverseContinuous([c===0?v:0,c===1?v:0,c===2?v:0])[c]));
+  const composed=[[1,0,0],[0,1,0],[0,0,1]];
+  for(let c=0;c<3;c++){
+    const other=[0,1,2].filter(i=>i!==c),features=untoned.map(row=>[row[other[0]]-row[c],row[other[1]]-row[c]]),target=preTone.map((row,i)=>row[c]-untoned[i][c]),coef=solve2(features,target,weights);
+    composed[c][other[0]]=coef[0];composed[c][other[1]]=coef[1];composed[c][c]=1-coef[0]-coef[1];
   }
-  const mixed = mixedValues(matrix, samples);
-  curves = [0,1,2].map(channel => fitCurve(
-    mixed.map(row => row[channel]),
-    targetStage.map(row => row[channel]),
-    weights));
-  const slot = {
-    name: cube.name,
-    enabled: true,
-    matrix,
-    colorBaseMatrix: matrix.map(row=>row.slice()),
-    curves,
-    masterCurve: identityCurve(),
-    preset_key: 'k12:natural',
-    matrix_domain: 'natural_relative',
-    camera_model: cameraModel,
-    brightness_ev: 0,
-    contrast: 0,
-    color_hue: 0,
-    color_sat: 1,
-    user_preset_id: '',
-    fit_report: {},
-    sourceLut: cube,
-  };
-  let absolute=0;
-  let count=0;
-  let max=0;
-  const validationGrid = 9;
-  for (let b=0;b<validationGrid;b++) {
-    for (let g=0;g<validationGrid;g++) {
-      for (let r=0;r<validationGrid;r++) {
-        const rgb=[r/(validationGrid-1),g/(validationGrid-1),b/(validationGrid-1)];
-        const truth=evaluateCube(cube,rgb);
-        const predicted=applyRelativeProxy(slot,naturalSlot,rgb);
-        for(let channel=0;channel<3;channel++){
-          const error=Math.abs(truth[channel]-predicted[channel])*255;
-          absolute+=error;
-          count++;
-          max=Math.max(max,error);
-        }
+  const regressed=normalizeRows(matrixMultiply(composed,naturalMatrix).map(row=>row.map(v=>Math.round(v*256))));
+  const evaluateSlot=slot=>{
+    const prepared=prepareRelativeProxy(slot,naturalSlot),volumeErrors=[],sq=[],sqWeights=[];
+    for(let i=0;i<samples.length;i++){
+      const out=applyPreparedRelative(prepared,samples[i]);
+      for(let c=0;c<3;c++){
+        const error=Math.abs(out[c]-desired[i][c])*255;if(i<volumeCount)volumeErrors.push(error);
+        sq.push(error*error);sqWeights.push(baseWeights[i]);
       }
     }
+    const weightedMean=sq.reduce((s,v,i)=>s+v*sqWeights[i],0)/sqWeights.reduce((a,b)=>a+b,0),score=weightedMean+.2*weightedPercentile(sq,sqWeights,.95);
+    return {slot,score,mae:volumeErrors.reduce((a,b)=>a+b,0)/volumeErrors.length,p95:percentile(volumeErrors,.95),max:Math.max(...volumeErrors)};
+  };
+  const fitForMatrix=matrix=>{
+    const rel=matrixMultiply(matrix.map(r=>r.map(v=>v/256)),invNatural),mixed=untoned.map(row=>rel.map(m=>clamp01(m[0]*row[0]+m[1]*row[1]+m[2]*row[2])));
+    const curves=[0,1,2].map(c=>{
+      const rawTarget=mixed.map((row,i)=>targetStage[i][c]-naturalForwardContinuous([c===0?row[c]:0,c===1?row[c]:0,c===2?row[c]:0])[c]+interp(naturalBaseline[c],row[c]));
+      return fitSmoothCurveR367(mixed.map(row=>row[c]),rawTarget,naturalBaseline[c],weights);
+    });
+    const slot={name:cube.name,enabled:true,matrix:matrix.map(r=>r.slice()),colorBaseMatrix:matrix.map(r=>r.slice()),curves,masterCurve:identityCurve(),preset_key:'k12:natural',matrix_domain:'natural_relative',camera_model:cameraModel,brightness_ev:0,contrast:0,color_hue:0,color_sat:1,user_preset_id:'',fit_report:{},sourceLut:cube};
+    return evaluateSlot(slot);
+  };
+  const pristine=cloneSlot(naturalSlot);pristine.name=cube.name;pristine.sourceLut=cube;pristine.camera_model=cameraModel;
+  let chosen=[evaluateSlot(pristine),fitForMatrix(naturalSlot.matrix),fitForMatrix(regressed)].sort((a,b)=>a.score-b.score)[0];
+  for(let round=0;round<3;round++){
+    const proposal=refitMatrixR367(raw,targetStage,chosen.slot.curves,weights,naturalSlot);let improved=false;
+    for(const mix of [.45,1]){
+      const trial=normalizeRows(chosen.slot.matrix.map((row,r)=>row.map((v,c)=>Math.round(v*(1-mix)+proposal[r][c]*mix))));if(trial.flat().some(v=>v<-2048||v>2047))continue;
+      const candidate=fitForMatrix(trial);if(candidate.score+1e-5<chosen.score){chosen=candidate;improved=true;}
+    }
+    if(!improved)break;
   }
+  for(const step of [8,2])for(let row=0;row<3;row++)for(let col=0;col<3;col++)if(col!==row)for(const direction of [-1,1]){
+    const trial=chosen.slot.matrix.map(r=>r.slice());trial[row][col]+=direction*step;trial[row][row]-=direction*step;if(trial.flat().some(v=>v<-2048||v>2047))continue;
+    const candidate=fitForMatrix(trial);if(candidate.score+1e-5<chosen.score)chosen=candidate;
+  }
+  const slot=chosen.slot;
+  const prepared=prepareRelativeProxy(slot,naturalSlot),deValues=[];
+  for(let i=0;i<volumeCount;i++)deValues.push(de00(srgbLab(applyPreparedRelative(prepared,samples[i])),srgbLab(desired[i])));
   slot.fit_report = {
-    rgb_mae_255: absolute / count,
-    rgb_max_255: max,
-    validation_grid: validationGrid,
-    model: 'Web quick Natural-relative Q8 + RGB U14 fit',
+    rgb_mae_255: chosen.mae,rgb_p95_255:chosen.p95,rgb_max_255:chosen.max,
+    de00_mean:deValues.reduce((a,b)=>a+b,0)/deValues.length,de00_p95:percentile(deValues,.95),
+    validation_grid:25,fit_profile:'R367-darkaware-target-weight-v1-web',
+    model:'Web R367-aligned P317 Natural-relative Q8 + RGB U14 fit',
   };
   return slot;
 }
@@ -832,10 +910,13 @@ export function cubeTextFromSlot(slot, naturalSlot, size=33) {
     'TITLE "' + clean + '"',
     '# Pentax Labs Web / Natural-relative Q8 + RGB U14 preview proxy',
     '# This is a display LUT for the web parameter model, not a RAW/ISP reconstruction.',
-    'LUT_3D_SIZE ' + count,
-    'DOMAIN_MIN 0.000000 0.000000 0.000000',
-    'DOMAIN_MAX 1.000000 1.000000 1.000000',
   ];
+  const mean=slot.fit_report?.de00_mean ?? slot.fit_report?.mean_de00;
+  const p95=slot.fit_report?.de00_p95 ?? slot.fit_report?.p95_de00;
+  const rgb=slot.fit_report?.rgb_mae_255;
+  if(Number.isFinite(mean))lines.push('# Current model DeltaE00 mean: '+Number(mean).toFixed(3)+(Number.isFinite(p95)?'; P95: '+Number(p95).toFixed(3):''));
+  if(Number.isFinite(rgb))lines.push('# Current model RGB MAE (0-255): '+Number(rgb).toFixed(3));
+  lines.push('LUT_3D_SIZE ' + count,'DOMAIN_MIN 0.000000 0.000000 0.000000','DOMAIN_MAX 1.000000 1.000000 1.000000');
   for(let b=0;b<count;b++) {
     for(let g=0;g<count;g++) {
       for(let r=0;r<count;r++){

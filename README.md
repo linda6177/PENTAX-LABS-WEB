@@ -10,6 +10,10 @@ Pentax Labs Beta81 的浏览器版。桌面程序仍是算法和机内脚本真�
 - K-1 II Web runtime 修正为桌面实际使用的 `assets/p286/P.BIN + R.BIN + startup.ttl`，并在浏览器加载时校验固定 SHA256；不再发布错误的上一级 P/R。K-1 继续使用 R29 专属底座。
 - 正负逆冲页面改成 Pentax 原生控制：Random/Extended、原厂 3×3 Matrix 银行、五项参数、RGB 0/1/2 ROM 曲线和 10B 配方。矩阵九格可编辑，编辑后吸附到最近的可编码原厂矩阵。
 - 工程模式在 Edge/Chrome 支持 File System Access API 时直接选择目录并写入工程文件；不再把 ZIP 作为主路径。浏览器不支持目录 API 时才回退下载 ZIP。
+- 四季滤镜、*ist D 中文固件和 AF 调焦同步采用相同目录选择流程；每次点击都会打开目录选择器，上次目录只作为起始位置。
+- *ist D 预览修复逆矩阵转置错误，并加入桌面/Web parity；Natural/Monochrome/Kyushu 与桌面 RGB8 逐值 `max=0/255`。
+- Web CUBE 拟合升级为与桌面 R367 对齐的 25³ solver，并改用 canonical Natural。17 个 `PENTAX LUT_33` 生产 LUT 与桌面 final ΔE 平均绝对差约 `0.039`。
+- 生产工厂库已从 `PENTAX LUT_33` 重新生成；网页不再展示旧库中遗留的过时模型色差。
 
 ## SD 写入
 

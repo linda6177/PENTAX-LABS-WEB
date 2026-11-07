@@ -251,7 +251,7 @@ export function compileIstdFiles(slot) {
   return files;
 }
 
-export function buildFocusZip(offset) {
+export function buildFocusFiles(offset) {
   const original=[309,274,283,342,324,318,307,291,283,311,294,277,332,327,286,270,316,279,333,267];
   const delta=Math.max(-64,Math.min(64,Math.round(offset)));
   const lines=[];
@@ -260,8 +260,10 @@ export function buildFocusZip(offset) {
     for(const value of original.slice(first,first+16)) values.push('"'+(value+delta).toString(16).toUpperCase().padStart(4,'0')+'"');
     lines.push(values.join(','));
   }
-  return zipStore({'KB321.EEP':lines.join('\r\n')+'\r\n','MODSET.TXT':'[EEPROM_LOAD]\r\n'});
+  return {'KB321.EEP':lines.join('\r\n')+'\r\n','MODSET.TXT':'[EEPROM_LOAD]\r\n'};
 }
+
+export function buildFocusZip(offset) { return zipStore(buildFocusFiles(offset)); }
 
 export function base64Bytes(value) {
   const raw=atob(value); const out=new Uint8Array(raw.length);

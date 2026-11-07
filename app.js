@@ -2,11 +2,11 @@ import {
   WHITE, cloneSlot, slotFromFactory, parseCube, evaluateCube, fitCubeQuick,
   prepareRelativeProxy, applyPreparedRelative, displayMatrix, setDisplayMatrix,
   relativeCurve, applyRelativeCurve, applyColorControls, configureDisplayKernel, adaptSlotToIstd,
-  smoothCurveTarget,
+  smoothCurveTarget, canonicalNaturalSlot,
 } from './engine.js';
 import {
   loadBuiltinRuntime, compileCameraScript, compileCameraScriptFiles, compileIstdFiles,
-  buildFocusZip, base64Bytes, zipStore,
+  buildFocusZip, buildFocusFiles, base64Bytes, zipStore,
 } from './runtime.js';
 
 const $=id=>document.getElementById(id);
@@ -213,7 +213,11 @@ function renderFilterList(){
     const selected=factory?(String(currentSlot().preset_key).replace(/^istd:/,'')===item.key&&!currentSlot().user_preset_id):currentSlot().user_preset_id===item.id;b.classList.toggle('active',selected);
     const thumb=document.createElement('canvas');thumb.className='thumb';thumb.width=152;thumb.height=112;
     const copy=document.createElement('span');copy.className='filter-label';const title=document.createElement('b');title.textContent=factory?item.label:item.name;
-    const sub=document.createElement('small');sub.textContent=factory?'K12 · Matrix + RGB Gamma':'Web 拟合 · MAE '+(Number.isFinite(item.slot.fit_report?.rgb_mae_255)?item.slot.fit_report.rgb_mae_255.toFixed(2)+'/255':'—');
+    const sub=document.createElement('small');sub.textContent=factory?(
+      (state.cameraModel==='istd'?'*ist D · Matrix + shared 4096 Gamma':'K12 · Matrix + RGB Gamma')+
+      ' · ΔE00 '+(Number.isFinite(slot.fit_report?.mean_de00)?slot.fit_report.mean_de00.toFixed(2):'—')):(
+      'R367 · ΔE00 '+(Number.isFinite(item.slot.fit_report?.de00_mean)?item.slot.fit_report.de00_mean.toFixed(2):'—')+
+      ' · RGB '+(Number.isFinite(item.slot.fit_report?.rgb_mae_255)?item.slot.fit_report.rgb_mae_255.toFixed(2)+'/255':'—'));
     copy.append(title,sub);b.append(thumb,copy);
     if(selected){const indicator=document.createElement('span');indicator.className='filter-indicator';b.appendChild(indicator);}
     b.onclick=()=>applyPreset(factory?item.key:item.id,factory);row.appendChild(b);
@@ -332,9 +336,9 @@ function renderPreview(){
 async function importFiles(files){
   const cubes=Array.from(files).filter(f=>/\.cube$/i.test(f.name));if(!cubes.length)return;
   for(const file of cubes){try{
-    setStatus('拟合 LUT：'+file.name);await new Promise(r=>requestAnimationFrame(r));const cube=parseCube(await file.text(),file.name),fitNatural=state.cameraModel==='istd'?slotFromFactory(factoryRow('k12:natural'),'k1ii'):state.natural,fitted=fitCubeQuick(cube,fitNatural,state.cameraModel==='istd'?'k1ii':state.cameraModel),id=cube.id.replace('lut:','');
+    setStatus('拟合 LUT：'+file.name);await new Promise(r=>requestAnimationFrame(r));const cube=parseCube(await file.text(),file.name),fitNatural=canonicalNaturalSlot('k1ii'),fitted=fitCubeQuick(cube,fitNatural,state.cameraModel==='istd'?'k1ii':state.cameraModel),id=cube.id.replace('lut:','');
     fitted.user_preset_id=id;fitted.sourceLut=cube;normalizeSlotShape(fitted);const item={id,name:cube.name,slot:stripSource(fitted),sourceLut:cube,importedAt:Date.now()};
-    state.users.set(id,item);await dbPut(item);const active=state.cameraModel==='istd'?adaptSlotToIstd(fitted,state.natural):fitted;active.user_preset_id=id;active.sourceLut=cube;state.slots[state.active]=cloneSlot(active);state.bases[state.active]=cloneSlot(active);state.tab='user';state.previewMode='camera';persist();notify('已导入「'+cube.name+'」 · MAE '+fitted.fit_report.rgb_mae_255.toFixed(2)+'/255');
+    state.users.set(id,item);await dbPut(item);const active=state.cameraModel==='istd'?adaptSlotToIstd(fitted,state.natural):fitted;active.user_preset_id=id;active.sourceLut=cube;state.slots[state.active]=cloneSlot(active);state.bases[state.active]=cloneSlot(active);state.tab='user';state.previewMode='camera';persist();notify('已导入「'+cube.name+'」 · ΔE00 '+fitted.fit_report.de00_mean.toFixed(2)+' · RGB '+fitted.fit_report.rgb_mae_255.toFixed(2)+'/255');
   }catch(e){console.error(e);notify(file.name+'：'+(e.message||e));}}
   $('lutFile').value='';refresh();setStatus('就绪');
 }
@@ -354,10 +358,11 @@ async function ensureDirectoryPermission(handle){
   if((await handle.queryPermission?.(options))==='granted')return true;
   return (await handle.requestPermission?.(options))==='granted';
 }
-async function chooseSdRoot(){
-  if(state.sdRoot&&await ensureDirectoryPermission(state.sdRoot))return state.sdRoot;
+async function chooseExportRoot(id='pentax-labs-sd-root'){
   if(!window.showDirectoryPicker)return null;
-  const handle=await window.showDirectoryPicker({id:'pentax-labs-sd-root',mode:'readwrite'});
+  const options={id,mode:'readwrite'};
+  if(state.sdRoot)options.startIn=state.sdRoot;
+  const handle=await window.showDirectoryPicker(options);
   if(!await ensureDirectoryPermission(handle))throw Error('没有目标目录写入权限');
   state.sdRoot=handle;await dbPut({id:'__sd_root_handle',type:'sd-root',handle});return handle;
 }
@@ -378,7 +383,7 @@ async function exportCameraScript(camera=state.cameraModel){
       files=compileCameraScriptFiles(state.slots,camera,base);
     }
     if(window.showDirectoryPicker){
-      const root=await chooseSdRoot();await writeFilesToDirectory(root,files);
+      const root=await chooseExportRoot('pentax-labs-filter-root');await writeFilesToDirectory(root,files);
       const label=/dcram/i.test(root.name||'')?'DCRAM SD卡':(root.name||'所选目录');
       if(camera==='istd'){setStatus('五 TXT 已写入 '+label+' 根目录');notify('已直接写入 *ist D 五 TXT');}
       else {setStatus('脚本已写入 '+label+' 根目录');notify('已直接写入 '+label+' /script');}
@@ -410,8 +415,7 @@ async function exportEngineering(){
   const files={};for(const [name,b64] of Object.entries(v.files||{}))files[name]=base64Bytes(b64);
   try{
     if(window.showDirectoryPicker){
-      const root=await window.showDirectoryPicker({id:'pentax-labs-engineering-root',mode:'readwrite'});
-      if(!await ensureDirectoryPermission(root))throw Error('没有目标目录写入权限');
+      const root=await chooseExportRoot('pentax-labs-engineering-root');
       await writeFilesToDirectory(root,files);notify('工程文件已直接写入 '+(root.name||'所选目录'));return;
     }
     downloadBlob('PentaxLabs_'+engineeringModels()[Number($('engineeringModel').value)||0].model+'_Engineering.zip',zipStore(files),'application/zip');
@@ -422,12 +426,15 @@ function refreshSeason(){
   const m=engineeringModels()[Number($('seasonModel').value)||0],trigger=(m?.variants||[]).find(v=>v.action==='script_enable'),activate=(m?.variants||[]).find(v=>v.action==='activate'&&Number(v.mask)===15);
   $('seasonInfo').textContent=m?`${m.model} · 工程触发：${Object.keys(trigger?.files||{}).filter(x=>x!=='DEVELOP.MOD').join('、')||'—'} · 四季 startup.ttl：${activate?'已归档':'缺失'}`:'—';
 }
-function exportSeason(){
+async function exportSeason(){
   const m=engineeringModels()[Number($('seasonModel').value)||0],first=(m?.variants||[]).find(v=>v.action==='script_enable'),second=(m?.variants||[]).find(v=>v.action==='activate'&&Number(v.mask)===15);
   if(!first||!second)return notify('当前机型缺少完整四季数据');
   const files={};for(const [name,b64] of Object.entries(first.files||{}))files[name]=base64Bytes(b64);for(const [name,b64] of Object.entries(second.files||{}))files[name]=base64Bytes(b64);
   files['使用说明.txt']='Pentax Labs 四季滤镜\n第一次开机：通过工程触发尝试启用 Script Mode；正常关机。\n第二次开机：保持同一张卡正常开机，执行 script/startup.ttl。\n';
-  downloadBlob('PentaxLabs_'+m.model+'_FourSeasons.zip',zipStore(files),'application/zip');
+  try{
+    if(window.showDirectoryPicker){const root=await chooseExportRoot('pentax-labs-seasons-root');await writeFilesToDirectory(root,files);notify('四季启用文件已直接写入 '+(root.name||'所选目录'));return;}
+    downloadBlob('PentaxLabs_'+m.model+'_FourSeasons.zip',zipStore(files),'application/zip');notify('当前浏览器不支持目录直写，已回退下载 ZIP');
+  }catch(e){if(e?.name!=='AbortError')notify(e.message||String(e));}
 }
 
 async function exportIstdFirmware(){
@@ -436,9 +443,9 @@ async function exportIstdFirmware(){
     if(!response.ok)response=await fetch('../app/lab_assets/istd_chinese.bin',{cache:'no-cache'});
     if(!response.ok)throw Error('中文固件资源加载失败');
     const data=new Uint8Array(await response.arrayBuffer());
-    if(window.showSaveFilePicker){
-      const handle=await window.showSaveFilePicker({suggestedName:'FWDC112B.BIN',types:[{description:'PENTAX Firmware',accept:{'application/octet-stream':['.BIN']}}]});
-      const writer=await handle.createWritable();await writer.write(data);await writer.close();notify('已保存 FWDC112B.BIN');return;
+    if(window.showDirectoryPicker){
+      const root=await chooseExportRoot('pentax-labs-istd-firmware-root');
+      await writeFilesToDirectory(root,{'FWDC112B.BIN':data});notify('FWDC112B.BIN 已直接写入 '+(root.name||'所选目录'));return;
     }
     downloadBlob('FWDC112B.BIN',data,'application/octet-stream');
   }catch(e){if(e?.name!=='AbortError')notify(e.message||String(e));}
@@ -546,7 +553,7 @@ function installEvents(){
   $('cpRecipeBtn').onclick=()=>downloadBlob('PENTAX_CP_10B.bin',cpRecipeBytes(),'application/octet-stream');
   $('cpExportBtn').onclick=()=>{if(!state.cpOriginal)return notify('请先选择照片');$('cpCanvas').toBlob(blob=>downloadBlob('PentaxLabs_CP.png',blob,'image/png'),'image/png');};
   $('firmwareExportBtn').onclick=exportIstdFirmware;
-  $('afOffset').oninput=()=>{$('afValue').textContent=(Number($('afOffset').value)>=0?'+':'')+$('afOffset').value;};$('afExportBtn').onclick=()=>downloadBlob('PentaxLabs_istD_AF.zip',buildFocusZip(Number($('afOffset').value)),'application/zip');
+  $('afOffset').oninput=()=>{$('afValue').textContent=(Number($('afOffset').value)>=0?'+':'')+$('afOffset').value;};$('afExportBtn').onclick=async()=>{try{const files=buildFocusFiles(Number($('afOffset').value));if(window.showDirectoryPicker){const root=await chooseExportRoot('pentax-labs-istd-af-root');await writeFilesToDirectory(root,files);notify('调焦文件已直接写入 '+(root.name||'所选目录'));return;}downloadBlob('PentaxLabs_istD_AF.zip',buildFocusZip(Number($('afOffset').value)),'application/zip');}catch(e){if(e?.name!=='AbortError')notify(e.message||String(e));}};
   const stage=$('photoStage');stage.ondragover=e=>{e.preventDefault();stage.classList.add('drag-over');};stage.ondragleave=()=>stage.classList.remove('drag-over');stage.ondrop=async e=>{e.preventDefault();stage.classList.remove('drag-over');const files=Array.from(e.dataTransfer.files),cubes=files.filter(f=>/\.cube$/i.test(f.name));if(cubes.length)await importFiles(cubes);const photo=files.find(f=>f.type.startsWith('image/'));if(photo)await loadPhoto(photo);};
 }
 
