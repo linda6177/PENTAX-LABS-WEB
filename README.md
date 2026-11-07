@@ -16,4 +16,4 @@ Pentax Labs 的公开 Web 发布仓库。这里只保留 GitHub Pages 运行所�
 
 完整相机脚本仍由 Windows Pentax Labs 使用本地原生运行底座生成。
 
-Source baseline: PENTAX-LABS main 926755f
+Source baseline: private PENTAX-LABS main. The exact synchronized source commit is recorded in version.json.
