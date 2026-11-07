@@ -687,7 +687,7 @@ function installEvents(){
 async function start(){
   installEvents();
   try{
-    setStatus(tr('加载 Beta81 Web','Loading Beta81 Web'));await loadLibraries();initializeSlots();rebuildFactorySlots();
+    setStatus(tr('加载 Beta82 Web','Loading Beta82 Web'));await loadLibraries();initializeSlots();rebuildFactorySlots();
     const [k1iiRuntime,k1Runtime]=await Promise.all([loadBuiltinRuntime('k1ii'),loadBuiltinRuntime('k1')]);
     state.runtimeBases.k1ii=k1iiRuntime;state.runtimeBases.k1=k1Runtime;
     const hash=location.hash.replace(/^#/,'');if(FEATURES.some(x=>x[0]===hash))state.currentPage=hash;
@@ -699,7 +699,7 @@ async function start(){
       }
       hydrateUserSources();refresh();persist();
     }catch(e){console.warn('IndexedDB unavailable',e);notify('浏览器持久存储不可用，本次会话仍可使用');}
-    let ready=tr('就绪','Ready')+' · Beta81 Web';
+    let ready=tr('就绪','Ready')+' · Beta82 Web';
     if(state.sdRoot&&await state.sdRoot.queryPermission?.({mode:'readwrite'})==='granted')
       ready+=' · SD '+(/dcram/i.test(state.sdRoot.name||'')?'DCRAM':(state.sdRoot.name||''));
     setStatus(ready);
