@@ -1,10 +1,11 @@
 import {
   WHITE, cloneSlot, slotFromFactory, parseCube, evaluateCube, fitCubeQuick,
   prepareRelativeProxy, applyPreparedRelative, displayMatrix, setDisplayMatrix,
-  relativeCurve, applyRelativeCurve, applyColorControls,
+  relativeCurve, applyRelativeCurve, applyColorControls, configureDisplayKernel, adaptSlotToIstd,
+  smoothCurveTarget,
 } from './engine.js';
 import {
-  loadBuiltinRuntime, compileCameraScript, compileCameraScriptFiles,
+  loadBuiltinRuntime, compileCameraScript, compileCameraScriptFiles, compileIstdFiles,
   buildFocusZip, base64Bytes, zipStore,
 } from './runtime.js';
 
@@ -21,11 +22,12 @@ const FEATURES=[
 
 const state={
   currentPage:'filters',family:null,factoryRows:[],factorySlots:new Map(),natural:null,
-  curveProfiles:null,engineeringPayload:null,users:new Map(),db:null,tab:'factory',
+  curveProfiles:null,engineeringPayload:null,cpNative:null,users:new Map(),db:null,tab:'factory',
   active:0,cameraModel:'k1ii',previewMode:'camera',slots:[],bases:[],channel:0,
   comparing:false,compareMode:0,split:.5,sourceName:'内置色卡',sourceMode:'chart',
   runtimeBases:{k1:null,k1ii:null},sdRoot:null,
-  cpOriginal:null,cpNeutral:[1,1,1],
+  curveAnchors:Array.from({length:3},()=>Array.from({length:4},()=>[])),curveAddMode:false,
+  cpOriginal:null,cpMode:'random',cpBaseIndex:5,cpControls:[0,0,4,-3,-2],cpCurves:'210',cpChannel:0,
 };
 const original=document.createElement('canvas');
 const originalContext=original.getContext('2d',{willReadFrequently:true});
@@ -84,17 +86,26 @@ async function fetchJson(candidates,label){
   for(const url of candidates){try{const r=await fetch(url,{cache:'no-cache'});if(!r.ok)throw Error('HTTP '+r.status);return await r.json();}catch(e){last=e;}}
   throw Error('无法读取'+label+'：'+(last?.message||'unknown'));
 }
+async function fetchBytes(candidates,label){
+  let last=null;
+  for(const url of candidates){try{const r=await fetch(url,{cache:'no-cache'});if(!r.ok)throw Error('HTTP '+r.status);return new Uint8Array(await r.arrayBuffer());}catch(e){last=e;}}
+  throw Error('无法读取'+label+'：'+(last?.message||'unknown'));
+}
 async function loadLibraries(){
-  const [factory,profiles,engineering]=await Promise.all([
+  const [factory,profiles,engineering,displayKernel,istdNatural,cpNative]=await Promise.all([
     fetchJson(['./assets/factory_lut_families.json','../app/core/assets/factory_lut_families.json'],'原厂滤镜库'),
     fetchJson(['./assets/relative_curve_profiles.json'],'相对曲线基准'),
     fetchJson(['./assets/engineering_payload.json','../app/lab_assets/engineering_payload.json'],'工程模式数据'),
+    fetchJson(['./assets/display_kernel.json'],'桌面预览内核'),
+    fetchBytes(['./assets/istd_natural4096.bin','../app/core/assets/istd_natural4096.bin'],'*ist D Natural Gamma'),
+    fetchJson(['./assets/cp_native.json'],'正负逆冲 ROM 数据'),
   ]);
   const family=factory.families?.k12;if(!family?.filters)throw Error('K12 原厂滤镜库格式不正确');
   state.family=family;state.factoryRows=family.filters;state.factorySlots.clear();
   family.filters.forEach(row=>state.factorySlots.set(row.key,slotFromFactory(row,state.cameraModel)));
   const naturalRow=family.filters.find(row=>row.local_key==='natural');if(!naturalRow)throw Error('原厂滤镜库缺少 Natural');
-  state.natural=slotFromFactory(naturalRow,state.cameraModel);state.curveProfiles=profiles;state.engineeringPayload=engineering;
+  configureDisplayKernel(displayKernel,istdNatural);
+  state.natural=slotFromFactory(naturalRow,state.cameraModel);state.curveProfiles=profiles;state.engineeringPayload=engineering;state.cpNative=cpNative;
   $('familyLabel').textContent=family.label||'K12';
 }
 function initializeSlots(){
@@ -102,7 +113,7 @@ function initializeSlots(){
   if(restored){
     state.currentPage=FEATURES.some(x=>x[0]===restored.currentPage)?restored.currentPage:'filters';
     state.active=Math.max(0,Math.min(2,Number(restored.active)||0));
-    state.cameraModel=restored.cameraModel==='k1'?'k1':'k1ii';state.tab=restored.tab==='user'?'user':'factory';
+    state.cameraModel=['istd','k1','k1ii'].includes(restored.cameraModel)?restored.cameraModel:'k1ii';state.tab=restored.tab==='user'?'user':'factory';
     state.compareMode=Math.max(0,Math.min(2,Number(restored.compareMode)||0));
     state.slots=restored.slots.map(slot=>normalizeSlotShape({...slot,sourceLut:null,camera_model:state.cameraModel}));
     state.bases=restored.bases.map(slot=>normalizeSlotShape({...slot,sourceLut:null,camera_model:state.cameraModel}));return;
@@ -114,6 +125,39 @@ function hydrateUserSources(){
     if(!slot?.user_preset_id)continue;const item=state.users.get(slot.user_preset_id);
     if(item?.sourceLut)slot.sourceLut=item.sourceLut;
   }
+}
+
+function factoryRow(key){
+  const raw=String(key||'').replace(/^istd:/,'');
+  return state.factoryRows.find(row=>row.key===raw)||null;
+}
+
+function rebuildFactorySlots(){
+  state.factorySlots.clear();
+  state.factoryRows.forEach(row=>state.factorySlots.set(row.key,slotFromFactory(row,state.cameraModel)));
+  const naturalRow=state.factoryRows.find(row=>row.local_key==='natural');
+  state.natural=slotFromFactory(naturalRow,state.cameraModel);
+}
+
+function switchCameraModel(model){
+  if(!['istd','k1','k1ii'].includes(model)||model===state.cameraModel)return;
+  const previous=state.slots.map(cloneSlot),previousBases=state.bases.map(cloneSlot);
+  state.cameraModel=model;rebuildFactorySlots();
+  state.slots=previous.map((slot,index)=>{
+    let next=null;
+    if(slot.user_preset_id){
+      const item=state.users.get(slot.user_preset_id),source=item?.slot?cloneSlot(item.slot):cloneSlot(slot);
+      if(model==='istd')next=adaptSlotToIstd(source,state.natural);
+      else {next=source;next.camera_model=model;if(String(next.preset_key).startsWith('istd:'))next.preset_key='k12:natural';}
+      next.user_preset_id=slot.user_preset_id;next.sourceLut=item?.sourceLut||slot.sourceLut||null;
+    }else{
+      const row=factoryRow(slot.preset_key);next=row?slotFromFactory(row,model):cloneSlot(state.natural);
+    }
+    next.name=slot.name;next.enabled=slot.enabled;return normalizeSlotShape(next);
+  });
+  state.bases=state.slots.map(cloneSlot);
+  state.channel=model==='istd'?0:Math.min(3,state.channel);
+  persist();refresh();setStatus('机型：'+(model==='istd'?'PENTAX *ist D':model==='k1'?'PENTAX K-1':'PENTAX K-1 II'));
 }
 
 function renderNav(){
@@ -166,7 +210,7 @@ function renderFilterList(){
   filtered.forEach(item=>{
     const slot=factory?state.factorySlots.get(item.key):item.slot,row=document.createElement('div');row.className='filter-row';
     const b=document.createElement('button');b.className='filter-item';
-    const selected=factory?(currentSlot().preset_key===item.key&&!currentSlot().user_preset_id):currentSlot().user_preset_id===item.id;b.classList.toggle('active',selected);
+    const selected=factory?(String(currentSlot().preset_key).replace(/^istd:/,'')===item.key&&!currentSlot().user_preset_id):currentSlot().user_preset_id===item.id;b.classList.toggle('active',selected);
     const thumb=document.createElement('canvas');thumb.className='thumb';thumb.width=152;thumb.height=112;
     const copy=document.createElement('span');copy.className='filter-label';const title=document.createElement('b');title.textContent=factory?item.label:item.name;
     const sub=document.createElement('small');sub.textContent=factory?'K12 · Matrix + RGB Gamma':'Web 拟合 · MAE '+(Number.isFinite(item.slot.fit_report?.rgb_mae_255)?item.slot.fit_report.rgb_mae_255.toFixed(2)+'/255':'—');
@@ -186,7 +230,7 @@ function renderSlots(){
     const copy=document.createElement('div');copy.className='slot-copy';
     const name=document.createElement('strong');name.textContent=slot.name||'CUST';
     const sub=document.createElement('small');
-    const factory=state.factoryRows.find(row=>row.key===slot.preset_key);
+    const factory=factoryRow(slot.preset_key);
     sub.textContent=slot.user_preset_id?(state.users.get(slot.user_preset_id)?.name||'用户滤镜'):(factory?.label||'尚未选择预设');
     copy.append(name,sub);card.append(dot,copy);
     card.onclick=()=>{state.active=index;persist();refresh();};
@@ -195,50 +239,62 @@ function renderSlots(){
   });
 }
 function renderMatrix(){
-  const grid=$('matrixGrid');grid.replaceChildren();const reference=state.curveProfiles?.natural_matrix_q8||null;const shown=displayMatrix(currentSlot(),state.natural,reference);
+  const grid=$('matrixGrid');grid.replaceChildren();const reference=state.curveProfiles?.natural_matrix_q8||null;
+  const shown=state.cameraModel==='istd'?currentSlot().matrix.map(r=>r.slice()):displayMatrix(currentSlot(),state.natural,reference);
   const corner=document.createElement('span');grid.appendChild(corner);
   ['r','g','b'].forEach((key,index)=>{const label=document.createElement('span');label.className='matrix-axis '+key;label.textContent=['R','G','B'][index];grid.appendChild(label);});
   for(let row=0;row<3;row++)for(let col=0;col<3;col++){
     if(col===0){const label=document.createElement('span');label.className='matrix-axis '+['r','g','b'][row];label.textContent=['R','G','B'][row];grid.appendChild(label);}
-    const input=document.createElement('input');input.type='number';input.step='1';input.min='-2048';input.max='2047';input.value=Math.round(shown[row][col]);
+    const input=document.createElement('input');input.type='number';input.step='1';input.min=state.cameraModel==='istd'?'-512':'-2048';input.max=state.cameraModel==='istd'?'511':'2047';input.value=Math.round(shown[row][col]);
     input.className=row===col?'matrix-cell diagonal':'matrix-cell';
     input.onchange=()=>{
-      const matrix=displayMatrix(currentSlot(),state.natural,reference),old=matrix[row][col],value=Math.max(-2048,Math.min(2047,Math.round(Number(input.value)||0)));
+      const matrix=state.cameraModel==='istd'?currentSlot().matrix.map(r=>r.slice()):displayMatrix(currentSlot(),state.natural,reference),old=matrix[row][col],lo=state.cameraModel==='istd'?-512:-2048,hi=state.cameraModel==='istd'?511:2047,value=Math.max(lo,Math.min(hi,Math.round(Number(input.value)||0)));
       matrix[row][col]=value;
       if(col===row){const other=(row+1)%3;matrix[row][other]-=value-old;}
       else matrix[row][row]=256-matrix[row].reduce((sum,v,c)=>c===row?sum:sum+Number(v),0);
-      setDisplayMatrix(currentSlot(),state.natural,matrix,reference);currentSlot().colorBaseMatrix=currentSlot().matrix.map(r=>r.slice());currentSlot().color_hue=0;currentSlot().color_sat=1;
+      if(state.cameraModel==='istd')currentSlot().matrix=matrix.map(r=>r.map(v=>Math.max(-512,Math.min(511,Math.round(v)))));else setDisplayMatrix(currentSlot(),state.natural,matrix,reference);
+      currentSlot().colorBaseMatrix=currentSlot().matrix.map(r=>r.slice());currentSlot().color_hue=0;currentSlot().color_sat=1;
       persist();refreshControls();queueRender();
     };grid.appendChild(input);
   }
 }
 function curveFactoryBase(slot){return state.factorySlots.get(slot.preset_key)||state.natural;}
-function curveView(){return relativeCurve(currentSlot(),state.natural,state.channel,state.curveProfiles,curveFactoryBase(currentSlot()));}
+function smoothCurveDisplay(values){
+  let out=values.slice();const kernel=[1,4,6,4,1].map(v=>v/16);
+  for(let pass=0;pass<2;pass++){
+    const next=out.slice();for(let i=1;i<out.length-1;i++){let sum=0;for(let k=-2;k<=2;k++)sum+=out[Math.max(0,Math.min(out.length-1,i+k))]*kernel[k+2];next[i]=sum;}out=next;
+  }
+  for(let i=1;i<out.length;i++)out[i]=Math.max(out[i],out[i-1]);return out;
+}
+function curveView(){return smoothCurveDisplay(relativeCurve(currentSlot(),state.natural,state.channel,state.curveProfiles,curveFactoryBase(currentSlot())));}
 function drawCurve(){
   const canvas=$('curveCanvas'),ctx=canvas.getContext('2d'),w=canvas.width,h=canvas.height,values=curveView();
   ctx.clearRect(0,0,w,h);ctx.fillStyle='#111216';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#292b31';ctx.lineWidth=1;
   for(let i=1;i<4;i++){ctx.beginPath();ctx.moveTo(w*i/4,0);ctx.lineTo(w*i/4,h);ctx.stroke();ctx.beginPath();ctx.moveTo(0,h*i/4);ctx.lineTo(w,h*i/4);ctx.stroke();}
   ctx.setLineDash([6,6]);ctx.strokeStyle='#666';ctx.globalAlpha=.55;ctx.beginPath();ctx.moveTo(0,h);ctx.lineTo(w,0);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;
-  const colors=['#d7d7de','#ef6767','#6fd58b','#6ba4ff'];ctx.strokeStyle=colors[state.channel];ctx.lineWidth=2.2;ctx.beginPath();
+  const colors=['#d7d7de','#ef6767','#6fd58b','#6ba4ff'];ctx.strokeStyle=colors[state.channel];ctx.lineWidth=2.2;ctx.lineJoin='round';ctx.lineCap='round';ctx.beginPath();
   values.forEach((v,i)=>{const x=i/(values.length-1)*w,y=h-Math.max(0,Math.min(1,v))*h;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();
+  const anchors=state.curveAnchors[state.active][state.channel]||[];
+  anchors.forEach(([x,y])=>{ctx.beginPath();ctx.arc(x*w,(1-y)*h,5.5,0,Math.PI*2);ctx.fillStyle='#17181c';ctx.fill();ctx.strokeStyle=colors[state.channel];ctx.lineWidth=2;ctx.stroke();});
 }
 function refreshControls(){
   const slot=currentSlot();$('brightness').value=Number(slot.brightness_ev||0);$('brightnessVal').textContent=(slot.brightness_ev>=0?'+':'')+Number(slot.brightness_ev||0).toFixed(2)+' EV';
   $('contrast').value=Number(slot.contrast||0);$('contrastVal').textContent=String(Math.round(Number(slot.contrast||0)));
   $('saturation').value=Number(slot.color_sat??1);$('saturationVal').textContent=Number(slot.color_sat??1).toFixed(2)+' ×';
   $('hue').value=Number(slot.color_hue||0);$('hueVal').textContent=Math.round(Number(slot.color_hue||0))+'°';
-  $('cameraModel').value=state.cameraModel;$('footerCamera').textContent=state.cameraModel==='k1'?'PENTAX K-1':'PENTAX K-1 II';
+  $('cameraModel').value=state.cameraModel;$('footerCamera').textContent=state.cameraModel==='istd'?'PENTAX *ist D':state.cameraModel==='k1'?'PENTAX K-1':'PENTAX K-1 II';
+  $('exportScriptBtn').textContent=state.cameraModel==='istd'?'导出五 TXT':'导出脚本';
   $('footerFilter').textContent=slot.name||'CUST';
   $('lutModeBtn').classList.toggle('on',state.previewMode==='lut');$('cameraModeBtn').classList.toggle('on',state.previewMode==='camera');$('lutModeBtn').classList.toggle('disabled',!slot.sourceLut);
   $('chartBtn').classList.toggle('on',state.sourceMode==='chart');$('photoBtn').classList.toggle('on',state.sourceMode==='photo');
   $('toggleCompare').textContent=state.compareMode===0?'全显示':state.compareMode===1?'左右':'上下';
-  $('channelTabs').querySelectorAll('button').forEach(b=>b.classList.toggle('on',Number(b.dataset.channel)===state.channel));
+  $('channelTabs').querySelectorAll('button').forEach(b=>{const channel=Number(b.dataset.channel);b.classList.toggle('on',channel===state.channel);b.disabled=state.cameraModel==='istd'&&channel>0;b.style.opacity=b.disabled?'.35':'1';});
   renderMatrix();drawCurve();
 }
 function refresh(){renderSlots();renderFilterList();refreshControls();queueRender();}
 function applyPreset(identifier,factory){
   let selected=factory?state.factorySlots.get(identifier):state.users.get(identifier)?.slot;
-  if(!selected)return;selected=cloneSlot(selected);if(!factory){const item=state.users.get(identifier);selected.sourceLut=item?.sourceLut||null;selected.user_preset_id=item.id;}
+  if(!selected)return;selected=cloneSlot(selected);if(!factory){const item=state.users.get(identifier);selected=state.cameraModel==='istd'?adaptSlotToIstd(selected,state.natural):selected;selected.sourceLut=item?.sourceLut||null;selected.user_preset_id=item.id;}
   selected.enabled=currentSlot().enabled;selected.camera_model=state.cameraModel;normalizeSlotShape(selected);
   state.slots[state.active]=selected;state.bases[state.active]=cloneSlot(selected);if(state.previewMode==='lut'&&!selected.sourceLut)state.previewMode='camera';persist();refresh();
 }
@@ -276,9 +332,9 @@ function renderPreview(){
 async function importFiles(files){
   const cubes=Array.from(files).filter(f=>/\.cube$/i.test(f.name));if(!cubes.length)return;
   for(const file of cubes){try{
-    setStatus('拟合 LUT：'+file.name);await new Promise(r=>requestAnimationFrame(r));const cube=parseCube(await file.text(),file.name),fitted=fitCubeQuick(cube,state.natural,state.cameraModel),id=cube.id.replace('lut:','');
+    setStatus('拟合 LUT：'+file.name);await new Promise(r=>requestAnimationFrame(r));const cube=parseCube(await file.text(),file.name),fitNatural=state.cameraModel==='istd'?slotFromFactory(factoryRow('k12:natural'),'k1ii'):state.natural,fitted=fitCubeQuick(cube,fitNatural,state.cameraModel==='istd'?'k1ii':state.cameraModel),id=cube.id.replace('lut:','');
     fitted.user_preset_id=id;fitted.sourceLut=cube;normalizeSlotShape(fitted);const item={id,name:cube.name,slot:stripSource(fitted),sourceLut:cube,importedAt:Date.now()};
-    state.users.set(id,item);await dbPut(item);state.slots[state.active]=cloneSlot(fitted);state.bases[state.active]=cloneSlot(fitted);state.tab='user';state.previewMode='camera';persist();notify('已导入「'+cube.name+'」 · MAE '+fitted.fit_report.rgb_mae_255.toFixed(2)+'/255');
+    state.users.set(id,item);await dbPut(item);const active=state.cameraModel==='istd'?adaptSlotToIstd(fitted,state.natural):fitted;active.user_preset_id=id;active.sourceLut=cube;state.slots[state.active]=cloneSlot(active);state.bases[state.active]=cloneSlot(active);state.tab='user';state.previewMode='camera';persist();notify('已导入「'+cube.name+'」 · MAE '+fitted.fit_report.rgb_mae_255.toFixed(2)+'/255');
   }catch(e){console.error(e);notify(file.name+'：'+(e.message||e));}}
   $('lutFile').value='';refresh();setStatus('就绪');
 }
@@ -292,13 +348,6 @@ function setInspector(name){
   document.querySelectorAll('.right-tabs button').forEach(b=>b.classList.toggle('on',b.dataset.inspector===name));
   document.querySelectorAll('.inspector-pane').forEach(p=>p.classList.toggle('active',p.dataset.inspectorPane===name));
 }
-function normalizedEdit(values,fromIndex,toIndex,toValue){
-  const out=values.slice(),start=Math.max(0,Math.min(out.length-1,Math.round(fromIndex))),end=Math.max(0,Math.min(out.length-1,Math.round(toIndex))),original=out[start];
-  const steps=Math.max(1,Math.abs(end-start)),dir=end>=start?1:-1;
-  for(let n=0;n<=steps;n++){const i=start+dir*n;out[i]=original+(toValue-original)*n/steps;}
-  for(let i=1;i<out.length;i++)out[i]=Math.max(out[i],out[i-1]);return out.map(v=>Math.max(0,Math.min(1,v)));
-}
-
 async function ensureDirectoryPermission(handle){
   if(!handle)return false;
   const options={mode:'readwrite'};
@@ -322,15 +371,22 @@ async function writeFilesToDirectory(root,files){
 }
 async function exportCameraScript(camera=state.cameraModel){
   try{
-    const base=state.runtimeBases[camera];if(!base)throw Error('当前机型内置运行时尚未加载');
-    const files=compileCameraScriptFiles(state.slots,camera,base);
+    let files;
+    if(camera==='istd')files=compileIstdFiles(currentSlot());
+    else {
+      const base=state.runtimeBases[camera];if(!base)throw Error('当前机型内置运行时尚未加载');
+      files=compileCameraScriptFiles(state.slots,camera,base);
+    }
     if(window.showDirectoryPicker){
       const root=await chooseSdRoot();await writeFilesToDirectory(root,files);
       const label=/dcram/i.test(root.name||'')?'DCRAM SD卡':(root.name||'所选目录');
-      setStatus('脚本已写入 '+label+' 根目录');notify('已直接写入 '+label+' /script');return;
+      if(camera==='istd'){setStatus('五 TXT 已写入 '+label+' 根目录');notify('已直接写入 *ist D 五 TXT');}
+      else {setStatus('脚本已写入 '+label+' 根目录');notify('已直接写入 '+label+' /script');}
+      return;
     }
-    downloadBlob(`PentaxLabs_${camera==='k1'?'K1':'K1II'}_script.zip`,compileCameraScript(state.slots,camera,base),'application/zip');
-    notify('当前浏览器不支持目录直写，已下载 script ZIP');
+    const blob=camera==='istd'?new Blob([zipStore(files)],{type:'application/zip'}):compileCameraScript(state.slots,camera,state.runtimeBases[camera]);
+    downloadBlob(camera==='istd'?'PentaxLabs_istD_5TXT.zip':`PentaxLabs_${camera==='k1'?'K1':'K1II'}_script.zip`,blob,'application/zip');
+    notify('当前浏览器不支持目录直写，已回退下载 ZIP');
   }catch(e){if(e?.name==='AbortError')return;notify(e.message||String(e));}
 }
 
@@ -347,11 +403,20 @@ function setupEngineering(){
 function refreshEngineering(){
   const m=engineeringModels()[Number($('engineeringModel').value)||0],variants=(m?.variants||[]).filter(v=>['entry','script_enable','script_disable'].includes(v.action));
   const select=$('engineeringVariant');select.replaceChildren();variants.forEach((v,i)=>select.add(new Option(variantLabel(v),String(i))));select._variants=variants;
-  $('engineeringTitle').textContent=m?.model||'—';$('engineeringTutorial').textContent='工程文件来自 Pentax Labs 当前 engineering_payload。\n选择入口后导出 ZIP，解压到 SD 根目录使用；网页不会修改照片或其他文件。';
+  $('engineeringTitle').textContent=m?.model||'—';$('engineeringTutorial').textContent='工程文件来自 Pentax Labs 当前 engineering_payload。\n选择入口后直接选择 SD 卡根目录写入；网页不会修改照片或其他文件。';
 }
-function exportEngineering(){
+async function exportEngineering(){
   const variants=$('engineeringVariant')._variants||[],v=variants[Number($('engineeringVariant').value)||0];if(!v)return;
-  const files={};for(const [name,b64] of Object.entries(v.files||{}))files[name]=base64Bytes(b64);downloadBlob('PentaxLabs_'+engineeringModels()[Number($('engineeringModel').value)||0].model+'_Engineering.zip',zipStore(files),'application/zip');
+  const files={};for(const [name,b64] of Object.entries(v.files||{}))files[name]=base64Bytes(b64);
+  try{
+    if(window.showDirectoryPicker){
+      const root=await window.showDirectoryPicker({id:'pentax-labs-engineering-root',mode:'readwrite'});
+      if(!await ensureDirectoryPermission(root))throw Error('没有目标目录写入权限');
+      await writeFilesToDirectory(root,files);notify('工程文件已直接写入 '+(root.name||'所选目录'));return;
+    }
+    downloadBlob('PentaxLabs_'+engineeringModels()[Number($('engineeringModel').value)||0].model+'_Engineering.zip',zipStore(files),'application/zip');
+    notify('当前浏览器不支持目录直写，已回退下载 ZIP');
+  }catch(e){if(e?.name!=='AbortError')notify(e.message||String(e));}
 }
 function refreshSeason(){
   const m=engineeringModels()[Number($('seasonModel').value)||0],trigger=(m?.variants||[]).find(v=>v.action==='script_enable'),activate=(m?.variants||[]).find(v=>v.action==='activate'&&Number(v.mask)===15);
@@ -380,24 +445,70 @@ async function exportIstdFirmware(){
 }
 
 async function loadCpPhoto(file){
-  const bitmap=await createImageBitmap(file),factor=Math.min(1,1400/Math.max(bitmap.width,bitmap.height));cpOriginal.width=Math.max(1,Math.round(bitmap.width*factor));cpOriginal.height=Math.max(1,Math.round(bitmap.height*factor));cpOriginalCtx.drawImage(bitmap,0,0,cpOriginal.width,cpOriginal.height);bitmap.close();state.cpOriginal=file.name;state.cpNeutral=[1,1,1];renderCp();
+  const bitmap=await createImageBitmap(file),factor=Math.min(1,1400/Math.max(bitmap.width,bitmap.height));cpOriginal.width=Math.max(1,Math.round(bitmap.width*factor));cpOriginal.height=Math.max(1,Math.round(bitmap.height*factor));cpOriginalCtx.drawImage(bitmap,0,0,cpOriginal.width,cpOriginal.height);bitmap.close();state.cpOriginal=file.name;renderCp();
 }
-function cpValues(){return {ev:Number($('cpExposure').value),contrast:Number($('cpContrast').value)/100,sat:Number($('cpSat').value)/100,hi:Number($('cpHighlights').value)/100,sh:Number($('cpShadows').value)/100};}
-function renderCp(){
-  if(!state.cpOriginal)return;const canvas=$('cpCanvas');canvas.width=cpOriginal.width;canvas.height=cpOriginal.height;const ctx=canvas.getContext('2d'),img=cpOriginalCtx.getImageData(0,0,cpOriginal.width,cpOriginal.height),px=img.data,v=cpValues(),gain=2**v.ev;
-  for(let i=0;i<px.length;i+=4){
-    let r=px[i]/255*state.cpNeutral[0],g=px[i+1]/255*state.cpNeutral[1],b=px[i+2]/255*state.cpNeutral[2];r*=gain;g*=gain;b*=gain;
-    const lum=.2126*r+.7152*g+.0722*b,contrast=1+v.contrast,shadowBoost=(1-lum)*v.sh*.45,highBoost=lum*v.hi*.35;
-    r=(r-.5)*contrast+.5+shadowBoost+highBoost;g=(g-.5)*contrast+.5+shadowBoost+highBoost;b=(b-.5)*contrast+.5+shadowBoost+highBoost;
-    const l=.2126*r+.7152*g+.0722*b,s=1+v.sat;r=l+(r-l)*s;g=l+(g-l)*s;b=l+(b-l)*s;
-    px[i]=Math.round(Math.max(0,Math.min(1,r))*255);px[i+1]=Math.round(Math.max(0,Math.min(1,g))*255);px[i+2]=Math.round(Math.max(0,Math.min(1,b))*255);
+function cpModeData(){return state.cpNative?.modes?.[state.cpMode]||{bases:[],limits:[]};}
+function cpBaseId(){const bases=cpModeData().bases;return bases[Math.max(0,Math.min(state.cpBaseIndex,bases.length-1))]??0;}
+function cpMatrixFor(base=cpBaseId()){return state.cpNative.matrices_q8[String(base)].map(row=>row.map(Number));}
+function cpNearestBase(target){
+  const bases=cpModeData().bases;let best=0,bestError=Infinity;
+  bases.forEach((base,index)=>{const matrix=cpMatrixFor(base);let error=0;for(let r=0;r<3;r++)for(let c=0;c<3;c++){const d=matrix[r][c]-target[r][c];error+=d*d;}if(error<bestError){bestError=error;best=index;}});return best;
+}
+function renderCpMatrix(){
+  const grid=$('cpMatrixGrid');grid.replaceChildren();const matrix=cpMatrixFor();
+  grid.appendChild(document.createElement('span'));
+  ['r','g','b'].forEach((key,index)=>{const label=document.createElement('span');label.className='matrix-axis '+key;label.textContent=['R','G','B'][index];grid.appendChild(label);});
+  for(let row=0;row<3;row++)for(let col=0;col<3;col++){
+    if(col===0){const label=document.createElement('span');label.className='matrix-axis '+['r','g','b'][row];label.textContent=['R','G','B'][row];grid.appendChild(label);}
+    const input=document.createElement('input');input.type='number';input.step='1';input.min='-1024';input.max='1024';input.value=Math.round(matrix[row][col]);input.className=row===col?'matrix-cell diagonal':'matrix-cell';
+    input.onchange=()=>{const target=matrix.map(r=>r.slice());target[row][col]=Math.max(-1024,Math.min(1024,Math.round(Number(input.value)||0)));state.cpBaseIndex=cpNearestBase(target);renderCpUi();renderCp();};grid.appendChild(input);
   }
+}
+function chooseCpCurve(channel,selected){
+  const next=state.cpCurves.split(''),old=next[channel],value=String(selected);
+  if(state.cpMode==='random'){
+    const other=next.findIndex((entry,index)=>index!==channel&&entry===value);
+    if(other>=0)next[other]=old;
+  }
+  next[channel]=value;state.cpCurves=next.join('');renderCpUi();renderCp();
+}
+function drawCpCurve(){
+  const canvas=$('cpCurveCanvas'),ctx=canvas.getContext('2d'),w=canvas.width,h=canvas.height,code=state.cpCurves[state.cpChannel],values=state.cpNative.curves[code];
+  ctx.clearRect(0,0,w,h);ctx.fillStyle='#111216';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#2d3037';ctx.lineWidth=1;
+  for(let i=1;i<4;i++){ctx.beginPath();ctx.moveTo(w*i/4,0);ctx.lineTo(w*i/4,h);ctx.stroke();ctx.beginPath();ctx.moveTo(0,h*i/4);ctx.lineTo(w,h*i/4);ctx.stroke();}
+  ctx.setLineDash([5,5]);ctx.strokeStyle='#5d616b';ctx.beginPath();ctx.moveTo(0,h);ctx.lineTo(w,0);ctx.stroke();ctx.setLineDash([]);
+  ctx.strokeStyle=['#ff858d','#7fd8a0','#80b3ff'][state.cpChannel];ctx.lineWidth=2.2;ctx.lineJoin='round';ctx.lineCap='round';ctx.beginPath();values.forEach((v,i)=>{const x=i/(values.length-1)*w,y=(1-v)*h;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();
+}
+function renderCpUi(){
+  if(!state.cpNative)return;
+  $('cpMode').value=state.cpMode;const select=$('cpBase');select.replaceChildren();cpModeData().bases.forEach((base,index)=>select.add(new Option(`${String(base).padStart(2,'0')} · ${state.cpNative.labels[String(base)]}`,String(index))));select.value=String(state.cpBaseIndex);
+  renderCpMatrix();
+  const controls=$('cpNativeControls');controls.replaceChildren();const limits=cpModeData().limits;
+  state.cpNative.control_labels.forEach((label,index)=>{const wrap=document.createElement('label');wrap.className='control';const head=document.createElement('span'),name=document.createElement('span'),out=document.createElement('output');name.textContent=label;out.textContent=String(state.cpControls[index]);head.append(name,out);const slider=document.createElement('input');slider.type='range';slider.min=limits[index][0];slider.max=limits[index][1];slider.step='1';slider.value=state.cpControls[index];slider.oninput=()=>{state.cpControls[index]=Number(slider.value);out.textContent=slider.value;renderCp();};wrap.append(head,slider);controls.appendChild(wrap);});
+  ['R','G','B'].forEach((name,index)=>{$('cpCurve'+name).value=state.cpCurves[index];});$('cpCurveCode').textContent=state.cpCurves;
+  $('cpChannelTabs').querySelectorAll('button').forEach(b=>b.classList.toggle('on',Number(b.dataset.cpChannel)===state.cpChannel));drawCpCurve();
+}
+function srgbDecode(v){v=Math.max(0,Math.min(1,v));return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;}
+function srgbEncode(v){v=Math.max(0,Math.min(1,v));return v<=.0031308?v*12.92:1.055*(v**(1/2.4))-.055;}
+function cpMatrixApply(matrix,rgb){return matrix.map(row=>Math.max(0,Math.min(1,row[0]*rgb[0]+row[1]*rgb[1]+row[2]*rgb[2])));}
+function cpChromaRotate(rgb,matrix){
+  const y=.299*rgb[0]+.587*rgb[1]+.114*rgb[2],cb=(rgb[2]-y)/1.772,cr=(rgb[0]-y)/1.402,cb2=matrix[1][1]*cb+matrix[1][2]*cr,cr2=matrix[2][1]*cb+matrix[2][2]*cr,r=y+1.402*cr2,b=y+1.772*cb2,g=(y-.299*r-.114*b)/.587;return [r,g,b].map(v=>Math.max(0,Math.min(1,v)));
+}
+function cpCurveAt(values,x){const p=Math.max(0,Math.min(1,x))*(values.length-1),a=Math.min(values.length-2,Math.floor(p)),f=p-a;return values[a]*(1-f)+values[a+1]*f;}
+function renderCp(){
+  if(!state.cpOriginal||!state.cpNative)return;const canvas=$('cpCanvas');canvas.width=cpOriginal.width;canvas.height=cpOriginal.height;const ctx=canvas.getContext('2d'),img=cpOriginalCtx.getImageData(0,0,cpOriginal.width,cpOriginal.height),px=img.data,base=cpBaseId(),matrix=cpMatrixFor(base).map(row=>row.map(v=>v/256)),[sat,hue,tone,contrast,sharp]=state.cpControls,axis=state.cpNative.axis12,satBank=axis.byte1_normal[sat+4],hueKey=state.cpNative.normal_hue_bases.includes(base)?'byte2_normal':'byte2_special',hueBank=axis[hueKey][hue+4];
+  for(let i=0;i<px.length;i+=4){
+    let work=cpMatrixApply(matrix,[srgbDecode(px[i]/255),srgbDecode(px[i+1]/255),srgbDecode(px[i+2]/255)]).map(srgbEncode);
+    work=cpMatrixApply(satBank,work);work=cpChromaRotate(work,hueBank);
+    if(tone)work=work.map(v=>Math.max(0,Math.min(1,v+.18*tone*v*(1-v))));
+    if(contrast)work=work.map(v=>Math.max(0,Math.min(1,.5+(v-.5)*(1+.11*contrast))));
+    for(let c=0;c<3;c++){const u=Math.max(0,Math.min(255,Math.round(work[c]*255))),mapped=cpCurveAt(state.cpNative.curves[state.cpCurves[c]],u/255)*255;px[i+c]=Math.max(0,Math.min(255,Math.round(.45*u+.55*mapped)));}
+  }
+  if(sharp){const source=new Uint8ClampedArray(px),amount=.12*sharp;for(let y=1;y<img.height-1;y++)for(let x=1;x<img.width-1;x++)for(let c=0;c<3;c++){const at=(y*img.width+x)*4+c,blur=(source[at-4]+source[at+4]+source[at-img.width*4]+source[at+img.width*4])/4;px[at]=Math.max(0,Math.min(255,Math.round(source[at]+amount*(source[at]-blur))));}}
   ctx.putImageData(img,0,0);$('cpEmpty').style.display='none';
 }
-function neutralizeCp(){
-  if(!state.cpOriginal)return;const img=cpOriginalCtx.getImageData(0,0,cpOriginal.width,cpOriginal.height).data;let sums=[0,0,0],n=0;
-  for(let i=0;i<img.length;i+=16){sums[0]+=img[i];sums[1]+=img[i+1];sums[2]+=img[i+2];n++;}
-  const avg=sums.map(x=>x/n),gray=(avg[0]+avg[1]+avg[2])/3;state.cpNeutral=avg.map(v=>gray/Math.max(v,1));renderCp();
+function cpRecipeBytes(){
+  const bytes=new Uint8Array(10);bytes[0]=cpBaseId();state.cpControls.forEach((value,index)=>bytes[1+index]=value&255);bytes[6]=0;for(let i=0;i<3;i++)bytes[7+i]=Number(state.cpCurves[i]);return bytes;
 }
 function installEvents(){
   $('navToggle').onclick=openNav;$('navMask').onclick=closeNav;$('homeBtn').onclick=()=>goPage('filters');
@@ -405,7 +516,7 @@ function installEvents(){
   $('refreshBtn').onclick=renderFilterList;
   $('importBtn').onclick=()=>$('lutFile').click();$('lutFile').onchange=e=>importFiles(e.target.files);$('photoBtn').onclick=()=>$('photoFile').click();$('photoFile').onchange=async e=>{if(e.target.files[0])try{await loadPhoto(e.target.files[0]);}catch(x){notify('照片读取失败：'+x.message);}e.target.value='';};
   $('chartBtn').onclick=chartSource;
-  $('cameraModel').onchange=()=>{state.cameraModel=$('cameraModel').value==='k1'?'k1':'k1ii';state.slots.forEach(s=>s.camera_model=state.cameraModel);state.bases.forEach(s=>s.camera_model=state.cameraModel);persist();refreshControls();};
+  $('cameraModel').onchange=()=>switchCameraModel($('cameraModel').value);
   $('brightness').oninput=()=>{currentSlot().brightness_ev=Number($('brightness').value);refreshControls();persist();queueRender();};$('contrast').oninput=()=>{currentSlot().contrast=Number($('contrast').value);refreshControls();persist();queueRender();};
   $('saturation').oninput=applyColorFromControls;$('hue').oninput=applyColorFromControls;
   $('resetBasicBtn').onclick=()=>{const slot=currentSlot();slot.brightness_ev=0;slot.contrast=0;slot.color_sat=1;slot.color_hue=0;slot.matrix=(slot.colorBaseMatrix||slot.matrix).map(r=>r.slice());persist();refreshControls();queueRender();};
@@ -414,18 +525,26 @@ function installEvents(){
   $('channelTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.channel=Number(b.dataset.channel);refreshControls();});
   $('resetCurveBtn').onclick=()=>{const slot=currentSlot(),base=currentBase();if(state.channel===0)slot.masterCurve=base.masterCurve.slice();else slot.curves[state.channel-1]=base.curves[state.channel-1].slice();persist();drawCurve();queueRender();};
   $('linearCurveBtn').onclick=()=>{const before=curveView(),target=state.curveProfiles.axis.slice();applyRelativeCurve(currentSlot(),state.natural,state.channel,target,before,state.curveProfiles);persist();drawCurve();queueRender();};
-  $('addCurvePointBtn').onclick=()=>notify('曲线可直接拖动；双击位置会作为新的编辑锚点');
+  $('addCurvePointBtn').onclick=()=>{state.curveAddMode=!state.curveAddMode;$('addCurvePointBtn').classList.toggle('prominent',state.curveAddMode);notify(state.curveAddMode?'在曲线上点击添加节点':'已取消加点');};
   const curve=$('curveCanvas'),pos=e=>{const r=curve.getBoundingClientRect();return {index:Math.max(0,Math.min(256,(e.clientX-r.left)/r.width*256)),value:Math.max(0,Math.min(1,1-(e.clientY-r.top)/r.height))};};
-  curve.onpointerdown=e=>{curve.setPointerCapture(e.pointerId);curvePointer={...pos(e),display:curveView(),native:state.channel===0?currentSlot().masterCurve.slice():currentSlot().curves[state.channel-1].slice()};};
-  curve.onpointermove=e=>{if(!curvePointer||!curve.hasPointerCapture(e.pointerId))return;const next=pos(e),target=normalizedEdit(curvePointer.display,curvePointer.index,next.index,next.value);if(state.channel===0)currentSlot().masterCurve=curvePointer.native.slice();else currentSlot().curves[state.channel-1]=curvePointer.native.slice();applyRelativeCurve(currentSlot(),state.natural,state.channel,target,curvePointer.display,state.curveProfiles);drawCurve();queueRender();};
+  const nearestCurveAnchor=e=>{const r=curve.getBoundingClientRect(),anchors=state.curveAnchors[state.active][state.channel],p=pos(e);let best=-1,dist=18;anchors.forEach(([x,y],i)=>{const dx=(x-p.index/256)*r.width,dy=(y-p.value)*r.height,d=Math.hypot(dx,dy);if(d<dist){dist=d;best=i;}});return best;};
+  const addCurveAnchor=e=>{const p=pos(e),x=p.index/256,y=p.value,anchors=state.curveAnchors[state.active][state.channel];anchors.push([x,y]);anchors.sort((a,b)=>a[0]-b[0]);state.curveAddMode=false;$('addCurvePointBtn').classList.remove('prominent');const before=curveView(),native=state.channel===0?currentSlot().masterCurve.slice():currentSlot().curves[state.channel-1].slice(),target=smoothCurveTarget(before,x,y);if(state.channel===0)currentSlot().masterCurve=native;else currentSlot().curves[state.channel-1]=native;applyRelativeCurve(currentSlot(),state.natural,state.channel,target,before,state.curveProfiles);persist();drawCurve();queueRender();};
+  curve.onpointerdown=e=>{if(e.button!==0)return;if(state.curveAddMode){addCurveAnchor(e);return;}curve.setPointerCapture(e.pointerId);curvePointer={...pos(e),display:curveView(),native:state.channel===0?currentSlot().masterCurve.slice():currentSlot().curves[state.channel-1].slice(),anchorIndex:nearestCurveAnchor(e)};};
+  curve.onpointermove=e=>{if(!curvePointer||!curve.hasPointerCapture(e.pointerId))return;const next=pos(e),x=next.index/256,target=smoothCurveTarget(curvePointer.display,x,next.value);if(state.channel===0)currentSlot().masterCurve=curvePointer.native.slice();else currentSlot().curves[state.channel-1]=curvePointer.native.slice();applyRelativeCurve(currentSlot(),state.natural,state.channel,target,curvePointer.display,state.curveProfiles);if(curvePointer.anchorIndex>=0){const anchors=state.curveAnchors[state.active][state.channel];anchors[curvePointer.anchorIndex]=[x,next.value];anchors.sort((a,b)=>a[0]-b[0]);}drawCurve();queueRender();};
   const endCurve=e=>{if(curve.hasPointerCapture(e.pointerId))curve.releasePointerCapture(e.pointerId);curvePointer=null;persist();};curve.onpointerup=endCurve;curve.onpointercancel=endCurve;
+  curve.ondblclick=e=>{e.preventDefault();addCurveAnchor(e);};
+  curve.oncontextmenu=e=>{e.preventDefault();const index=nearestCurveAnchor(e);if(index>=0){state.curveAnchors[state.active][state.channel].splice(index,1);drawCurve();}};
   $('cameraModeBtn').onclick=()=>{state.previewMode='camera';refreshControls();queueRender();};$('lutModeBtn').onclick=()=>{if(!currentSlot().sourceLut)return notify('当前滤镜没有保留原始 CUBE');state.previewMode='lut';refreshControls();queueRender();};
   $('toggleCompare').onclick=()=>{state.compareMode=(state.compareMode+1)%3;persist();refreshControls();queueRender();};
   $('exportScriptBtn').onclick=()=>exportCameraScript();
   $('engineeringExportBtn').onclick=exportEngineering;$('seasonExportBtn').onclick=exportSeason;
   $('cpPhotoBtn').onclick=()=>$('cpPhotoFile').click();$('cpPhotoFile').onchange=async e=>{if(e.target.files[0])await loadCpPhoto(e.target.files[0]);e.target.value='';};
-  for(const id of ['cpExposure','cpContrast','cpSat','cpHighlights','cpShadows'])$(id).oninput=()=>{const map={cpExposure:'cpExposureVal',cpContrast:'cpContrastVal',cpSat:'cpSatVal',cpHighlights:'cpHighlightsVal',cpShadows:'cpShadowsVal'};$(map[id]).textContent=Number($(id).value).toFixed(id==='cpExposure'?2:0);renderCp();};
-  $('cpNeutralBtn').onclick=neutralizeCp;$('cpExportBtn').onclick=()=>{if(!state.cpOriginal)return notify('请先选择照片');$('cpCanvas').toBlob(blob=>downloadBlob('PentaxLabs_CP.png',blob,'image/png'),'image/png');};
+  $('cpMode').onchange=()=>{state.cpMode=$('cpMode').value==='extended'?'extended':'random';state.cpBaseIndex=0;state.cpControls=[0,0,0,0,0];if(state.cpMode==='random'&&new Set(state.cpCurves).size<3)state.cpCurves='210';renderCpUi();renderCp();};
+  $('cpBase').onchange=()=>{state.cpBaseIndex=Number($('cpBase').value)||0;renderCpUi();renderCp();};
+  $('cpChannelTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.cpChannel=Number(b.dataset.cpChannel);renderCpUi();});
+  ['R','G','B'].forEach((name,index)=>{$('cpCurve'+name).onchange=()=>chooseCpCurve(index,$('cpCurve'+name).value);});
+  $('cpRecipeBtn').onclick=()=>downloadBlob('PENTAX_CP_10B.bin',cpRecipeBytes(),'application/octet-stream');
+  $('cpExportBtn').onclick=()=>{if(!state.cpOriginal)return notify('请先选择照片');$('cpCanvas').toBlob(blob=>downloadBlob('PentaxLabs_CP.png',blob,'image/png'),'image/png');};
   $('firmwareExportBtn').onclick=exportIstdFirmware;
   $('afOffset').oninput=()=>{$('afValue').textContent=(Number($('afOffset').value)>=0?'+':'')+$('afOffset').value;};$('afExportBtn').onclick=()=>downloadBlob('PentaxLabs_istD_AF.zip',buildFocusZip(Number($('afOffset').value)),'application/zip');
   const stage=$('photoStage');stage.ondragover=e=>{e.preventDefault();stage.classList.add('drag-over');};stage.ondragleave=()=>stage.classList.remove('drag-over');stage.ondrop=async e=>{e.preventDefault();stage.classList.remove('drag-over');const files=Array.from(e.dataTransfer.files),cubes=files.filter(f=>/\.cube$/i.test(f.name));if(cubes.length)await importFiles(cubes);const photo=files.find(f=>f.type.startsWith('image/'));if(photo)await loadPhoto(photo);};
@@ -434,11 +553,11 @@ function installEvents(){
 async function start(){
   installEvents();
   try{
-    setStatus('加载 beta80 Web');await loadLibraries();initializeSlots();
+    setStatus('加载 Beta81 Web');await loadLibraries();initializeSlots();rebuildFactorySlots();
     const [k1iiRuntime,k1Runtime]=await Promise.all([loadBuiltinRuntime('k1ii'),loadBuiltinRuntime('k1')]);
     state.runtimeBases.k1ii=k1iiRuntime;state.runtimeBases.k1=k1Runtime;
     const hash=location.hash.replace(/^#/,'');if(FEATURES.some(x=>x[0]===hash))state.currentPage=hash;
-    $('cameraModel').value=state.cameraModel;chartSource();setupEngineering();refresh();goPage(state.currentPage);persist();
+    $('cameraModel').value=state.cameraModel;chartSource();setupEngineering();renderCpUi();refresh();goPage(state.currentPage);persist();
     try{
       state.db=await openDatabase();for(const item of await dbAll()){
         if(item?.type==='sd-root'&&item.handle)state.sdRoot=item.handle;
@@ -446,7 +565,7 @@ async function start(){
       }
       hydrateUserSources();refresh();persist();
     }catch(e){console.warn('IndexedDB unavailable',e);notify('浏览器持久存储不可用，本次会话仍可使用');}
-    let ready='就绪 · beta80 Web';
+    let ready='就绪 · Beta81 Web';
     if(state.sdRoot&&await state.sdRoot.queryPermission?.({mode:'readwrite'})==='granted')
       ready+=' · SD '+(/dcram/i.test(state.sdRoot.name||'')?'DCRAM':(state.sdRoot.name||''));
     setStatus(ready);

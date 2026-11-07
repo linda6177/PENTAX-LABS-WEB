@@ -7,3 +7,19 @@
 .tool-page{overflow:auto;background:#101012}.tool-wrap{max-width:1100px;margin:0 auto;padding:28px 42px 50px}.wide-tool{max-width:1280px}.tool-heading h1{margin:0;font-size:27px}.tool-heading h1 small{font-size:13px;color:#777d88;font-weight:400;margin-left:8px}.tool-heading p{color:#9297a2;margin:8px 0 22px}.tool-card{background:#1a1a1d;border:1px solid #36363b;border-radius:14px;padding:18px;margin-bottom:14px}.tool-card h2{margin:0 0 8px;font-size:15px}.tool-card p{color:#979ba5}.row-card,.action-card{display:flex;align-items:center;gap:14px}.row-card select{min-width:190px}.row-card .studio-button{margin-left:auto}.cp-grid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:15px}.cp-preview{min-height:480px;display:grid;place-items:center;position:relative;background:#090b0d}.cp-preview canvas{max-width:100%;max-height:70vh}.cp-controls .control{margin-top:13px}.steps{display:grid;grid-template-columns:1fr 1fr;gap:14px}.steps .tool-card>b{font-size:24px;color:#5b8cff}.tutorial{white-space:pre-wrap;color:#bbc0ca}.big-value{font-size:28px;color:#7aaeff;margin-left:auto}.wide-range{margin:18px 0}
 @media(max-width:1180px){.shell{min-width:980px}.topbar,.filter-layout{grid-template-columns:210px minmax(340px,1fr) 310px}.filter-layout{gap:7px;padding:7px}.topbar{gap:7px;padding:0 7px}.offline-note{display:none}.matrix-box{height:168px}.inspector-pane{padding:13px}.header-slot{width:108px}}
 @media(max-height:690px){.shell{grid-template-rows:76px minmax(0,1fr) 42px}.topbar{height:76px}.header-center{height:76px}.header-slots{height:55px}.header-status{height:16px}.filter-layout{padding-top:6px;padding-bottom:6px}.preset-head{height:34px}.switcher{margin-top:6px}.search{margin-top:6px}.filter-item{height:70px}.thumb{width:70px;height:52px}.viewer-toolbar{height:48px}.adjust{grid-template-rows:43px minmax(0,1fr) 52px}.inspector-pane{padding:12px 14px}.controls{gap:10px}.hint{margin:7px 0 10px}.divider{margin:12px 0}.matrix-box{height:154px}.matrix-grid{grid-template-rows:15px repeat(3,31px);gap:6px}.matrix-cell{height:31px}.curve-box{min-height:230px}.camera-footer{height:52px}.foot{height:42px}}
+
+/* Beta81 Cross Processing: expose the native matrix bank and full ROM curves. */
+.cp-grid{grid-template-columns:minmax(0,1fr) 430px}
+.cp-preview{min-height:520px}.cp-preview canvas{max-height:72vh}
+.cp-controls{max-height:calc(100dvh - 190px);overflow:auto}
+.cp-select-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.cp-select-row label,.cp-curve-selectors label{display:flex;flex-direction:column;gap:5px;color:#9297a2;font-size:10px}
+.cp-select-row select,.cp-curve-selectors select{height:33px;border:1px solid #3d4048;border-radius:7px;background:#202126;color:#eee;padding:0 8px}
+.cp-matrix-title,.cp-curve-title{margin-top:15px}.cp-matrix-title span,.cp-curve-title span{font-size:9px;color:#818896}
+.cp-matrix-box{height:168px;margin-top:8px}
+.cp-native-controls{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.cp-channel-row{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0}
+.cp-channel-row button{height:31px;border:1px solid #353841;border-radius:7px;background:#222329;color:#9ba1ad}
+.cp-channel-row button.on{background:#343943;color:#fff;border-color:#5776ad}
+.cp-curve-canvas{display:block;width:100%;height:150px;border:1px solid #30343d;border-radius:9px;background:#111216}
+.cp-curve-selectors{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:8px}

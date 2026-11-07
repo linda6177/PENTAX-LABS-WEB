@@ -130,10 +130,28 @@ async function fetchRuntimeBytes(candidates,label) {
   throw Error(label+' 加载失败：'+(last?.message||'unknown'));
 }
 
+async function sha256(bytes){
+  const digest=await crypto.subtle.digest('SHA-256',bytes);
+  return Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');
+}
+
+const RUNTIME_SHA={
+  k1ii:{
+    'P.BIN':'5c59598cad7077a6b6f28407d82751ef1a568c78ec2ccdc7f12d2359095cccd9',
+    'R.BIN':'5ea9ab6e862edb4a7eb215e48859c8f37a6e67ec9658a7f4eadfe6d5ca4186cf',
+    'startup.ttl':'4d86444e4a403b03a2ccc1862256315c765634c443e60a82caea4da15ef50771',
+  },
+  k1:{
+    'P.BIN':'c5cfb69843caf792f74ba14d38ae0456e99e64d342fa6ee1f989ab47fe7e47b2',
+    'R.BIN':'f3727523cb5cd1807748bb555346b55253cafd382f6ba29560993ddf72e68d61',
+    'startup.ttl':'3acfe32e777a84205ecc39d4b014d167ae788e2695b7e1999f3d77549a763130',
+  },
+};
+
 export async function loadBuiltinRuntime(cameraModel) {
   const key=cameraModel==='k1'?'k1':'k1ii';
   const root='./assets/runtime/'+key+'/';
-  const source=key==='k1'?'../app/core/assets/k1_native_r29/':'../app/core/assets/';
+  const source=key==='k1'?'../app/core/assets/k1_native_r29/':'../app/core/assets/p286/';
   const [p,r,ttl]=await Promise.all([
     fetchRuntimeBytes([root+'P.BIN',source+'P.BIN'],'P.BIN'),
     fetchRuntimeBytes([root+'R.BIN',source+'R.BIN'],'R.BIN'),
@@ -141,6 +159,9 @@ export async function loadBuiltinRuntime(cameraModel) {
   ]);
   if(p.length!==4096) throw Error('内置 P.BIN 长度异常');
   if(r.length<0x16B48) throw Error('内置 R.BIN 长度异常');
+  const hashes=await Promise.all([sha256(p),sha256(r),sha256(ttl)]);
+  for(const [name,actual] of [['P.BIN',hashes[0]],['R.BIN',hashes[1]],['startup.ttl',hashes[2]]])
+    if(actual!==RUNTIME_SHA[key][name])throw Error(`${key} ${name} SHA256 不匹配，拒绝导出`);
   const expected=key==='k1'?'K1N29':'K12EN81';
   if(!dec.decode(ttl).includes(expected)) throw Error('内置脚本与当前机型不匹配：'+expected);
   return {cameraModel:key,p,r,ttl,loadedAt:Date.now(),builtin:true};
@@ -197,6 +218,20 @@ export function compileCameraScriptFiles(slots,cameraModel,base) {
 
 export function compileCameraScript(slots,cameraModel,base) {
   return zipStore(compileCameraScriptFiles(slots,cameraModel,base));
+}
+
+export function compileIstdFiles(slot) {
+  if(!slot||slot.camera_model!=='istd')throw Error('当前槽不是 *ist D 参数');
+  const matrix=slot.matrix.map(row=>row.map(v=>Math.round(Number(v))));
+  if(matrix.flat().some(v=>v<-512||v>511)||matrix.some(row=>row.reduce((a,b)=>a+b,0)!==256))
+    throw Error('*ist D 矩阵必须为 signed10 且每行和为 256');
+  const gamma=(slot.masterCurve||[]).map(v=>Math.max(0,Math.min(255,Math.round(Number(v)*255/WHITE))));
+  if(gamma.length!==4096)throw Error('*ist D 共享 Gamma 必须为 4096 点');
+  for(let i=1;i<gamma.length;i++)if(gamma[i]<gamma[i-1])throw Error('*ist D Gamma 必须单调');
+  const line=matrix.flat().join(',');
+  const files={'SysParam.txt':enc.encode(`[RGBMATRIX1]\r\n${line}@\r\n[RGBMATRIX2]\r\n${line}@\r\n`)};
+  for(let part=0;part<4;part++)files[`GamTbl${part}.txt`]=enc.encode(gamma.slice(part*1024,(part+1)*1024).map(v=>`${v}\r\n`).join(''));
+  return files;
 }
 
 export function buildFocusZip(offset) {

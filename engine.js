@@ -7,6 +7,28 @@ export const WHITE = 16383;
 export const NODES = 256;
 export const clamp01 = value => Math.min(1, Math.max(0, Number(value)));
 
+let DISPLAY_KERNEL=null;
+let ISTD_NATURAL_GAMMA=null;
+let ISTD_DISPLAY_INDEX=null;
+
+export function configureDisplayKernel(kernel, istdNaturalGamma=null) {
+  DISPLAY_KERNEL=kernel||null;
+  ISTD_NATURAL_GAMMA=istdNaturalGamma?Array.from(istdNaturalGamma,Number):null;
+  if(ISTD_NATURAL_GAMMA?.length===4096){
+    const first=new Array(256).fill(-1),last=new Array(256).fill(-1);
+    ISTD_NATURAL_GAMMA.forEach((value,index)=>{const v=Math.max(0,Math.min(255,Math.round(value)));if(first[v]<0)first[v]=index;last[v]=index;});
+    const known=[];for(let v=0;v<256;v++)if(first[v]>=0)known.push(v);
+    ISTD_DISPLAY_INDEX=new Array(256);
+    for(let code=0;code<256;code++){
+      if(first[code]>=0){ISTD_DISPLAY_INDEX[code]=(first[code]+last[code])*.5/4095;continue;}
+      let hi=known.find(v=>v>code),lo=[...known].reverse().find(v=>v<code);
+      if(lo===undefined)lo=known[0];if(hi===undefined)hi=known[known.length-1];
+      const a=(first[lo]+last[lo])*.5/4095,b=(first[hi]+last[hi])*.5/4095;
+      ISTD_DISPLAY_INDEX[code]=hi===lo?a:a+(b-a)*(code-lo)/(hi-lo);
+    }
+  }
+}
+
 export function identityCurve() {
   return Array.from({length:NODES}, (_, index) => index * WHITE / (NODES - 1));
 }
@@ -33,6 +55,19 @@ export function normalizeRows(matrix) {
 }
 
 export function slotFromFactory(row, cameraModel='k1ii') {
+  if(cameraModel==='istd'){
+    const gamma=(row.istd_gamma_u8||[]).map(value=>Number(value)*WHITE/255);
+    return {
+      name:row.label,enabled:true,
+      matrix:row.istd_matrix_q8.map(values=>values.map(Number)),
+      colorBaseMatrix:row.istd_matrix_q8.map(values=>values.map(Number)),
+      curves:[identityCurve(),identityCurve(),identityCurve()],
+      masterCurve:gamma.length===4096?gamma:Array.from({length:4096},(_,i)=>i*WHITE/4095),
+      preset_key:'istd:'+row.key,matrix_domain:'legacy_native',camera_model:'istd',
+      brightness_ev:0,contrast:0,color_hue:0,color_sat:1,user_preset_id:'',
+      fit_report:{source:'Pentax Labs beta80 *ist D production adaptation'},sourceLut:null,
+    };
+  }
   return {
     name: row.label,
     enabled: true,
@@ -54,6 +89,46 @@ export function slotFromFactory(row, cameraModel='k1ii') {
       source: 'Pentax Labs beta80 production factory library',
     },
     sourceLut: null,
+  };
+}
+
+function normalizeIstdMatrix(matrix){
+  const out=matrix.map(row=>row.map(Number));
+  for(let r=0;r<3;r++){
+    const drift=(out[r].reduce((a,b)=>a+b,0)-256)/3;
+    out[r]=out[r].map(v=>Math.max(-512,Math.min(511,Math.round(v-drift))));
+    let remain=256-out[r].reduce((a,b)=>a+b,0);
+    for(let pass=0;pass<3&&remain;pass++){
+      let best=0,bestRoom=-1;
+      for(let c=0;c<3;c++){const room=remain>0?511-out[r][c]:out[r][c]+512;if(room>bestRoom){bestRoom=room;best=c;}}
+      const step=Math.min(Math.abs(remain),Math.max(0,bestRoom))*(remain>0?1:-1);out[r][best]+=step;remain-=step;
+    }
+  }
+  return out;
+}
+
+function gaplessGamma(values){
+  const desired=values.map(v=>Math.max(0,Math.min(255,Math.round(v))));
+  const out=new Array(desired.length);out[0]=desired[0];
+  for(let i=1;i<out.length;i++)out[i]=Math.max(out[i-1],Math.min(out[i-1]+1,desired[i]));
+  for(let i=out.length-2;i>=0;i--)out[i]=Math.min(out[i],out[i+1]);
+  return out;
+}
+
+export function adaptSlotToIstd(sourceSlot,naturalIstdSlot){
+  const relative=sourceSlot.matrix_domain==='natural_relative'?sourceSlot.matrix:[[256,0,0],[0,256,0],[0,0,256]];
+  const matrix=normalizeIstdMatrix(matrixMultiply(relative.map(r=>r.map(v=>v/256)),naturalIstdSlot.matrix)
+    .map(r=>r.map(v=>Math.round(v))));
+  const curves=effectiveCurves(sourceSlot),weights=[.2126,.7152,.0722];
+  const shared=Array.from({length:4096},(_,i)=>{
+    const x=i/4095;return weights.reduce((sum,w,c)=>sum+w*curveAt(curves[c],x)/WHITE,0)*255;
+  });
+  const gamma=gaplessGamma(shared);
+  return {
+    ...cloneSlot(sourceSlot),matrix,colorBaseMatrix:matrix.map(r=>r.slice()),
+    curves:[identityCurve(),identityCurve(),identityCurve()],masterCurve:gamma.map(v=>v*WHITE/255),
+    preset_key:'istd:user-adapted',matrix_domain:'legacy_native',camera_model:'istd',
+    brightness_ev:0,contrast:0,color_hue:0,color_sat:1,
   };
 }
 
@@ -109,8 +184,30 @@ function smoothFactoryApprox(curve) {
   return values;
 }
 
+function istdToneDisplay(master,count=257){
+  if(!ISTD_NATURAL_GAMMA?.length)return Array.from({length:count},(_,i)=>i/(count-1));
+  const current=(master||[]).map(v=>Math.max(0,Math.min(255,Math.round(Number(v)*255/WHITE))));
+  const counts=new Array(256).fill(0),sums=new Array(256).fill(0);
+  for(let i=0;i<4096;i++){const code=ISTD_NATURAL_GAMMA[i];counts[code]++;sums[code]+=current[i]-code;}
+  const known=[];for(let i=0;i<256;i++)if(counts[i])known.push(i);
+  const delta=new Array(256);
+  for(let code=0;code<256;code++){
+    if(counts[code]){delta[code]=sums[code]/counts[code];continue;}
+    let hi=known.find(v=>v>code),lo=[...known].reverse().find(v=>v<code);if(lo===undefined)lo=known[0];if(hi===undefined)hi=known[known.length-1];
+    const a=sums[lo]/counts[lo],b=sums[hi]/counts[hi];delta[code]=hi===lo?a:a+(b-a)*(code-lo)/(hi-lo);
+  }
+  const kernel=[];let total=0;for(let d=-18;d<=18;d++){const v=Math.exp(-.5*(d/4.5)**2);kernel.push(v);total+=v;}for(let i=0;i<kernel.length;i++)kernel[i]/=total;
+  const smooth=new Array(256).fill(0);
+  for(let x=0;x<256;x++)for(let k=-18;k<=18;k++){let at=x+k;if(at<0)at=-at;if(at>255)at=510-at;smooth[x]+=delta[at]*kernel[k+18];}
+  const values=new Array(256);let last=0;for(let i=0;i<256;i++){last=Math.max(last,Math.max(0,Math.min(255,i+smooth[i])));values[i]=last;}
+  if(current[0]===0&&current.at(-1)===255)for(let i=0;i<256;i++)values[i]=.985*values[i]+.015*i;
+  values[0]=current[0]||0;values[255]=current.at(-1)??255;
+  return Array.from({length:count},(_,i)=>interp(values,i/(count-1))/255);
+}
+
 export function relativeCurve(slot,naturalSlot,channel,profiles=null,factoryBase=null) {
   const axis=profiles?.axis || Array.from({length:257},(_,i)=>i/256);
+  if(slot.camera_model==='istd')return channel===0?istdToneDisplay(slot.masterCurve,axis.length):axis.slice();
   if (channel===0) {
     const master=(slot.masterCurve||identityCurve()).map(v=>clamp01(v/WHITE));
     return axis.map(x=>interp(master,x));
@@ -148,18 +245,33 @@ export function applyRelativeCurve(slot,naturalSlot,channel,target,previous,prof
   const clean=target.map(clamp01);
   const delta=clean.map((value,i)=>value-previous[i]);
   if (channel===0) {
-    const values=(slot.masterCurve||identityCurve()).map((value,i)=>
-      Math.round(clamp01(value/WHITE+interp(delta,i/(NODES-1)))*WHITE));
+    const master=slot.masterCurve||identityCurve();
+    const values=master.map((value,i)=>
+      Math.round(clamp01(value/WHITE+interp(delta,i/Math.max(master.length-1,1)))*WHITE));
     for(let i=1;i<values.length;i++) values[i]=Math.max(values[i],values[i-1]);
     slot.masterCurve=values;
     return;
   }
+  if(slot.camera_model==='istd')return;
   const displayAxis=profiles?.natural_native_display?.[channel-1] ||
     Array.from({length:NODES},(_,i)=>i/(NODES-1));
   const native=slot.curves[channel-1].map((value,i)=>
     Math.round(clamp01(value/WHITE+interp(delta,displayAxis[i]))*WHITE));
   for(let i=1;i<native.length;i++) native[i]=Math.max(native[i],native[i-1]);
   slot.curves[channel-1]=native;
+}
+
+export function smoothCurveTarget(baseline,x,y){
+  const values=baseline.map(clamp01),center=clamp01(x),target=clamp01(y),at=interp(values,center);
+  const delta=target-at,width=.115;
+  const shaped=values.map((value,index)=>{
+    const t=index/Math.max(values.length-1,1);
+    const gaussian=Math.exp(-.5*((t-center)/width)**2);
+    const edge=(center>1e-4&&center<.9999)?Math.min(1,(t*(1-t))/Math.max(center*(1-center),1e-6)):gaussian;
+    return clamp01(value+delta*gaussian*edge);
+  });
+  shaped[0]=values[0];shaped[shaped.length-1]=values.at(-1);
+  return isotonic(shaped,shaped.map(()=>1));
 }
 
 export function saturationMatrix(strength) {
@@ -342,14 +454,68 @@ function preparedStageAt(stage, rgb) {
   return mixed.map((value, channel) => curveAt(stage.curves[channel], value));
 }
 
+function hardwarePreviewMatrix(slot) {
+  if(!DISPLAY_KERNEL)return slot.matrix.map(row=>row.map(Number));
+  if(slot.matrix_domain!=='natural_relative')return slot.matrix.map(row=>row.map(Number));
+  const common=DISPLAY_KERNEL.common_q13.map(row=>row.map(v=>Number(v)/8192));
+  return normalizeRows(matrixMultiply(slot.matrix.map(row=>row.map(v=>Number(v)/256)),common)
+    .map(row=>row.map(v=>Math.round(v*256))));
+}
+
+function interpolateArray(values,x) {
+  const point=clamp01(x)*(values.length-1),left=Math.min(values.length-2,Math.floor(point)),f=point-left;
+  return Number(values[left])*(1-f)+Number(values[left+1])*f;
+}
+
+function p317Tones(slot) {
+  const scale=Number(DISPLAY_KERNEL.scale||16380),base=DISPLAY_KERNEL.natural_table_u16;
+  const natural=DISPLAY_KERNEL.natural_camera_curves_u14;
+  const current=effectiveCurves(slot);
+  return [0,1,2].map(channel=>{
+    const currentApprox=smoothFactoryApprox(current[channel]);
+    const naturalApprox=smoothFactoryApprox(natural[channel]);
+    const correction=currentApprox.map((value,index)=>value-naturalApprox[index]);
+    const candidate=new Array(scale+1);
+    for(let i=0;i<=scale;i++)candidate[i]=clamp01(Number(base[channel][i])/scale+interpolateArray(correction,i/scale));
+    return isotonic(candidate,new Array(candidate.length).fill(1));
+  });
+}
+
+function prepareP317(slot) {
+  const hardware=hardwarePreviewMatrix(slot).map(row=>row.map(v=>v/256));
+  const natural=DISPLAY_KERNEL.natural_hardware_q8.map(row=>row.map(v=>Number(v)/256));
+  return {kind:'p317',matrix:matrixMultiply(hardware,invert3(natural)),tones:p317Tones(slot)};
+}
+
+const ISTD_FACTORY_MATRIX=[[391,-145,10],[-36,352,-60],[-12,-50,318]];
+function prepareIstd(slot){
+  const gamma=(slot.masterCurve||[]).map(value=>Math.max(0,Math.min(255,Math.round(Number(value)*255/WHITE))));
+  return {kind:'istd',matrix:slot.matrix.map(row=>row.map(v=>Number(v)/256)),gamma};
+}
+
 export function prepareRelativeProxy(slot, naturalSlot) {
-  return {style:prepareStage(slot), natural:prepareStage(naturalSlot)};
+  if(slot.camera_model==='istd'&&ISTD_DISPLAY_INDEX)return prepareIstd(slot);
+  if(DISPLAY_KERNEL)return prepareP317(slot);
+  return {kind:'legacy',style:prepareStage(slot),natural:prepareStage(naturalSlot)};
 }
 
 export function applyPreparedRelative(prepared, rgb) {
-  const style = preparedStageAt(prepared.style, rgb);
-  const natural = preparedStageAt(prepared.natural, rgb);
-  return rgb.map((value, channel) => clamp01(value + style[channel] - natural[channel]));
+  if(prepared.kind==='p317'){
+    const codes=rgb.map(value=>Math.max(0,Math.min(255,Math.round(clamp01(value)*255))));
+    const latent=codes.map(code=>Number(DISPLAY_KERNEL.byte_inverse[code]));
+    const mixed=prepared.matrix.map(row=>clamp01(row[0]*latent[0]+row[1]*latent[1]+row[2]*latent[2]));
+    return rgb.map((value,channel)=>clamp01(value+interpolateArray(prepared.tones[channel],mixed[channel])-
+      Number(DISPLAY_KERNEL.byte_roundtrip[codes[channel]][channel])));
+  }
+  if(prepared.kind==='istd'){
+    const inv=invert3(ISTD_FACTORY_MATRIX.map(row=>row.map(v=>v/256)));
+    const index=rgb.map(value=>ISTD_DISPLAY_INDEX[Math.max(0,Math.min(255,Math.round(clamp01(value)*255)))]);
+    const sensor=[0,1,2].map(c=>index[0]*inv[0][c]+index[1]*inv[1][c]+index[2]*inv[2][c]);
+    const mapped=prepared.matrix.map(row=>clamp01(row[0]*sensor[0]+row[1]*sensor[1]+row[2]*sensor[2]));
+    return mapped.map(value=>Number(prepared.gamma[Math.max(0,Math.min(4095,Math.round(value*4095)))])/255);
+  }
+  const style=preparedStageAt(prepared.style,rgb),natural=preparedStageAt(prepared.natural,rgb);
+  return rgb.map((value,channel)=>clamp01(value+style[channel]-natural[channel]));
 }
 
 export function applyRelativeProxy(slot, naturalSlot, rgb) {

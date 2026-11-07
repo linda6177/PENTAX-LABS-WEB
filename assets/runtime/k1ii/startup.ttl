@@ -481,6 +481,66 @@ call dump
 ti=11
 call tick
 call writetime
+pause 5
+addr=block+88832
+nbytes=1536
+path='C:\script\K12EN81\P23_00.BIN'
+call dump
+pause 5
+addr=block+88832
+nbytes=1536
+path='C:\script\K12EN81\P23_01.BIN'
+call dump
+pause 5
+addr=block+88832
+nbytes=1536
+path='C:\script\K12EN81\P23_02.BIN'
+call dump
+pause 5
+addr=block+88832
+nbytes=1536
+path='C:\script\K12EN81\P23_03.BIN'
+call dump
+pause 5
+addr=block+88832
+nbytes=1536
+path='C:\script\K12EN81\P23_04.BIN'
+call dump
+pause 5
+addr=block+88832
+nbytes=1536
+path='C:\script\K12EN81\P23_05.BIN'
+call dump
+pause 5
+addr=block+88832
+nbytes=1536
+path='C:\script\K12EN81\P23_06.BIN'
+call dump
+pause 5
+addr=block+88832
+nbytes=1536
+path='C:\script\K12EN81\P23_07.BIN'
+call dump
+pause 5
+addr=block+88832
+nbytes=1536
+path='C:\script\K12EN81\P23_08.BIN'
+call dump
+pause 5
+addr=block+88832
+nbytes=1536
+path='C:\script\K12EN81\P23_09.BIN'
+call dump
+pause 5
+addr=block+88832
+nbytes=1536
+path='C:\script\K12EN81\P23_10.BIN'
+call dump
+pause 5
+addr=block+88832
+nbytes=1536
+path='C:\script\K12EN81\P23_11.BIN'
+call dump
 message='DONE R51 RESTORED CI ENGINE FOUR_SEASONS     '
 call mark
 end

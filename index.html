@@ -125,6 +125,7 @@
             <div class="camera-footer">
               <span>相机型号</span>
               <select id="cameraModel" class="compact-select">
+                <option value="istd">PENTAX *ist D</option>
                 <option value="k1ii">PENTAX K-1 II</option>
                 <option value="k1">PENTAX K-1</option>
               </select>
@@ -135,18 +136,21 @@
 
       <section class="page tool-page" data-page="cp">
         <div class="tool-wrap wide-tool">
-          <div class="tool-heading"><h1>正负逆冲 <small>Cross Processing</small></h1><p>浏览器本地照片预览与去色罩调整；不上传原图。</p></div>
+          <div class="tool-heading"><h1>正负逆冲 <small>Cross Processing</small></h1><p>原厂矩阵银行 · 五项机内参数 · RGB ROM 曲线；浏览器本地预览。</p></div>
           <div class="cp-grid">
             <div class="tool-card cp-preview"><canvas id="cpCanvas"></canvas><div id="cpEmpty">选择照片开始</div></div>
             <div class="tool-card cp-controls">
               <button class="studio-button prominent block" id="cpPhotoBtn">选择照片</button>
-              <label class="control"><span>曝光 <output id="cpExposureVal">0.00</output></span><input id="cpExposure" type="range" min="-2" max="2" step=".05" value="0"></label>
-              <label class="control"><span>对比度 <output id="cpContrastVal">0</output></span><input id="cpContrast" type="range" min="-100" max="100" step="1" value="0"></label>
-              <label class="control"><span>饱和度 <output id="cpSatVal">0</output></span><input id="cpSat" type="range" min="-100" max="100" step="1" value="0"></label>
-              <label class="control"><span>亮部 <output id="cpHighlightsVal">0</output></span><input id="cpHighlights" type="range" min="-100" max="100" step="1" value="0"></label>
-              <label class="control"><span>暗部 <output id="cpShadowsVal">0</output></span><input id="cpShadows" type="range" min="-100" max="100" step="1" value="0"></label>
-              <button class="studio-button neutral block" id="cpNeutralBtn">一键去色罩 / 中和</button>
-              <button class="studio-button prominent block" id="cpExportBtn">导出处理后 PNG</button>
+              <div class="cp-select-row"><label>生成模式<select id="cpMode"><option value="random">随机预设</option><option value="extended">扩展基底</option></select></label><label>原厂矩阵<select id="cpBase"></select></label></div>
+              <div class="subhead-line cp-matrix-title"><h3>3 × 3 原厂矩阵 / Q8</h3><span id="cpMatrixNote">可编辑 · 自动吸附原厂银行</span></div>
+              <div class="matrix-box cp-matrix-box"><div class="matrix-grid" id="cpMatrixGrid"></div></div>
+              <div id="cpNativeControls" class="cp-native-controls"></div>
+              <div class="subhead-line cp-curve-title"><h3>RGB 原厂曲线</h3><span id="cpCurveCode">210</span></div>
+              <div class="cp-channel-row" id="cpChannelTabs"><button data-cp-channel="0" class="on">R</button><button data-cp-channel="1">G</button><button data-cp-channel="2">B</button></div>
+              <canvas id="cpCurveCanvas" class="cp-curve-canvas" width="640" height="320"></canvas>
+              <div class="cp-curve-selectors"><label>R<select id="cpCurveR"><option>0</option><option>1</option><option>2</option></select></label><label>G<select id="cpCurveG"><option>0</option><option>1</option><option>2</option></select></label><label>B<select id="cpCurveB"><option>0</option><option>1</option><option>2</option></select></label></div>
+              <button class="studio-button neutral block" id="cpRecipeBtn">导出 10B 机内配方</button>
+              <button class="studio-button prominent block" id="cpExportBtn">导出当前预览 PNG</button>
             </div>
           </div>
         </div>
