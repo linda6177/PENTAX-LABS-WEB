@@ -49,8 +49,8 @@ const GUIDE_SECTIONS=[
   ['色彩矩阵与 Gamma 曲线','以 Natural 为相对基准。曲线显示采用和桌面端相同的“平滑意图”模型：原厂 256 个物理节点不会直接变成 256 个可见控制点，默认只显示黑白端点。直接拖动曲线主体可做大范围平滑形变；拖端点可改变黑白端位置；双击或“加点”增加中间控制点，右键移除点不会恢复原始效果。显示平滑只负责表达调整意图，后台仍把相对变化写回原有 256 点机内 Gamma；“线性”回到 Natural 对角线，“恢复”返回当前预设基线。','Color Matrix & Gamma Curves','Natural is the relative reference. The curve display uses the same smooth-intent model as desktop: the 256 physical factory nodes are not exposed as 256 visible handles, and only black/white endpoints appear by default. Drag the curve body for broad smooth shaping, move endpoints to change black/white positions, double-click or Add Point for intermediate controls, and right-click a point to remove the handle without reverting the effect. Display smoothing represents editing intent while the relative change is still written back to the original 256 camera Gamma nodes. Linear returns to the Natural diagonal; Restore returns to the active preset baseline.'],
   ['照片预览与对比','网页启动默认显示色卡。单击“照片”选择本地 JPG/PNG/WebP/AVIF，照片只在浏览器本地解码，不会上传；左侧滤镜缩略图与主预览使用同一张照片。LUT/机内切换用于比较原始 CUBE 与拟合后的机内参数；对比按钮依次切换全显示、左右、上下。照片区域仍支持把 .cube 或照片直接拖入，但不再显示常驻遮挡提示。','Photo Preview & Compare','The web app starts with the color chart. Photo opens a local JPG/PNG/WebP/AVIF and never uploads it; left-side filter thumbnails use the same source as the main preview. LUT/Camera compares the original CUBE with the fitted camera parameters, while Compare cycles Full, Left/Right and Top/Bottom. The photo area still accepts dragged .cube files or photos, but the permanent overlay hint has been removed.'],
   ['相机脚本导出与注意事项','自定义滤镜页底部选择真实相机型号。K-1 II 使用独立 P286 运行时，K-1 使用独立 R29 运行时；两者都导出 Natural 相对矩阵映射后的 Q8/Q13 与三路 U14。*ist D 使用 signed10 Q8 3×3 Matrix 加一条共享 4096 点 U8 Gamma，所以复杂彩色 LUT 的理论误差可能明显更高。每次点击导出都会先让你选择 SD 卡根目录或测试目录，再直接写入。','Camera Script Export & Notes','Choose the real camera model at the bottom of Custom Filters. K-1 II uses its own P286 runtime and K-1 uses the separate R29 runtime; both export Natural-relative matrix mapping as Q8/Q13 plus three U14 channels. *ist D uses a signed10 Q8 3×3 Matrix plus one shared 4096-node U8 Gamma, so complex color LUTs can have higher model error. Every export first asks for the SD-card root or a test folder and then writes directly.'],
-  ['正负逆冲','正负逆冲右侧和桌面端一样分成“色彩调节”和“通道曲线”两页。色彩调节页选择 Random/Extended 模式和有限的原厂矩阵银行；矩阵数值只读，不支持自由编辑，并可调整饱和度、色相、影调、对比度和锐度。通道曲线页同时显示 R/G/B 三路完整 ROM 曲线，下方分别选择各通道的 0、1、2 曲线编号。Random 模式要求三个编号互不重复，预览与 10B 导出按同一原厂配方模型处理。','Cross Processing','Cross Processing mirrors desktop with separate Color Adjustments and Tone Curves pages. Color selects Random/Extended mode and one of the finite OEM matrix banks; matrix values are read-only, while the five native controls remain adjustable. Tone Curves displays all three R/G/B ROM curves simultaneously, with independent 0/1/2 selectors below each channel. Random mode requires three different indices. Preview and 10-byte export use the same factory recipe model.'],
-  ['工程模式与四季滤镜','工程模式只导出项目内已有证据的入口文件。四季滤镜采用“一次写卡、两次开机”：01 第一次按机型对应的工程入口条件开机，尝试启用 SCRIPT EN MODE，然后正常关机；02 保持同一张卡、关好卡门后正常开机，执行 script/startup.ttl，再到机内菜单检查四季滤镜。导出时直接选择 SD 卡根目录或测试目录，不需要中途替换文件。','Service Mode & Four Seasons','Service Mode exports only entry files supported by project evidence. Four Seasons uses one card write and two boots: 01 boot using the model-specific engineering entry procedure, attempt to enable SCRIPT EN MODE, then power off normally; 02 keep the same card inserted, close the card door and boot normally to run script/startup.ttl, then check the seasonal filters in the camera menu. Export directly to the SD-card root or a test folder; no file swapping is needed between boots.'],
+  ['正负逆冲','正负逆冲右侧分成“色彩调节”和“通道曲线”两页。色彩调节页选择 Random/Extended 模式与原厂矩阵基底，并调整饱和度、色相、影调、对比度和锐度；矩阵数值由原厂数据在内部参与处理，页面不显示也不提供矩阵编辑。通道曲线页同时显示 R/G/B 三路完整 ROM 曲线，下方分别选择各通道的 0、1、2 曲线编号。Random 模式要求三个编号互不重复，预览与 10B 导出按同一原厂配方模型处理。','Cross Processing','Cross Processing has separate Color Adjustments and Tone Curves pages. Color selects Random/Extended mode and an OEM matrix base, then adjusts saturation, hue, tone, contrast and sharpness. The OEM matrix remains internal to the rendering pipeline; no matrix editor or matrix-value panel is shown. Tone Curves displays all three R/G/B ROM curves simultaneously, with independent 0/1/2 selectors below each channel. Random mode requires three different indices. Preview and 10-byte export use the same factory recipe model.'],
+  ['工程模式与四季滤镜','工程模式独立展示完整 36 款机型，保留各机型的按键教程、固件方案和 Service / Factory 入口；只有存在文件的方案才允许导出。四季滤镜独立使用 4 款已适配机型，采用“一次写卡、两次开机”：第一次启用 Script Mode 后正常关机；第二次保持同一张卡正常开机，执行 script/startup.ttl，再到机内菜单检查四季滤镜。','Service Mode & Four Seasons','Service Mode has its own complete 36-model catalog, including button-sequence tutorials, firmware variants and Service / Factory entries. Export is enabled only for variants that contain files. Four Seasons uses a separate list of its four supported models and a one-card, two-boot flow: enable Script Mode and shut down on the first boot; keep the same card inserted on the second boot, run script/startup.ttl, then check the camera menu.'],
   ['*ist D 工具箱','*ist D 工具箱包含 Firmware 1.12 中文固件和 AF Fine Adjustment。中文固件固定命名 FWDC112B.BIN；调焦范围 −64～+64，默认 +32，生成 KB321.EEP 与 MODSET.TXT。两项都使用“选择目录后直接写入”的流程。*ist D 自定义滤镜的 Matrix/Gamma 能力与 K-1/K-1 II 不同，不能用后三者的三路 Gamma 精度去要求它。','*ist D Toolbox','The *ist D toolbox contains the Chinese Firmware 1.12 file and AF Fine Adjustment. Firmware is always named FWDC112B.BIN; AF adjustment ranges from −64 to +64 with +32 as the default and generates KB321.EEP plus MODSET.TXT. Both use direct folder export. *ist D custom-filter Matrix/Gamma capability differs from K-1/K-1 II and should not be judged against their three independent Gamma channels.'],
   ['导出目录与浏览器权限','自定义滤镜、工程模式、四季滤镜、*ist D 固件和调焦文件都以“选择目录后直接写入”为主流程。通常直接选择相机 SD 卡根目录，也可以先选任意测试目录。浏览器安全模型不允许网页静默枚举 Windows 盘符或卷标，所以第一次及每次主动导出都会打开系统目录选择器；上次目录只作为起始位置。浏览器不支持 File System Access API 时才回退 ZIP/下载。不要把 script 子目录本身当作 SD 根目录。','Export Folders & Browser Permissions','Custom filters, Service Mode, Four Seasons, *ist D firmware and AF files all use direct folder export as the primary workflow. Normally choose the camera SD-card root, or use a test folder first. Browser security prevents a web page from silently enumerating Windows drive letters or volume labels, so every explicit export opens the system folder picker; the previous folder is only used as the starting location. ZIP/download is only the fallback when the File System Access API is unavailable. Do not select the script subfolder itself as the SD-card root.'],
 ];
@@ -504,40 +504,51 @@ async function exportCameraScript(camera=state.cameraModel){
   }catch(e){if(e?.name==='AbortError')return;notify(e.message||String(e));}
 }
 
-function engineeringModels(){return state.engineeringPayload?.filters||[];}
+function engineeringModels(){return state.engineeringPayload?.models||[];}
+function seasonModels(){return state.engineeringPayload?.filters||[];}
 function variantLabel(v){
   const labels={entry:'工程模式入口',script_enable:'启用脚本模式',script_disable:'关闭脚本模式',probe:'脚本探测'};
-  if(v.action==='activate')return '启用四季 '+v.mask;if(v.action==='clear')return '关闭四季 '+v.mask;return labels[v.action]||v.action;
+  if(v.label)return v.label;
+  if(v.action==='activate')return '启用四季 '+v.mask;if(v.action==='clear')return '关闭四季 '+v.mask;return labels[v.action]||v.action||'工程文件方案';
 }
 function setupEngineering(){
-  const model=$('engineeringModel');model.replaceChildren();engineeringModels().forEach((m,i)=>model.add(new Option(m.model,String(i))));
+  const model=$('engineeringModel');model.replaceChildren();engineeringModels().forEach((m,i)=>model.add(new Option(m.display||m.model,String(i))));
   model.onchange=refreshEngineering;refreshEngineering();
-  const season=$('seasonModel');season.replaceChildren();engineeringModels().forEach((m,i)=>season.add(new Option(m.model,String(i))));season.value='1';season.onchange=refreshSeason;refreshSeason();
+  const season=$('seasonModel');season.replaceChildren();seasonModels().forEach((m,i)=>season.add(new Option(m.display||m.model,String(i))));
+  season.value=String(Math.max(0,seasonModels().findIndex(m=>m.model==='K-1 II')));season.onchange=refreshSeason;refreshSeason();
   translateStatic(document.body);
 }
 function refreshEngineering(){
-  const m=engineeringModels()[Number($('engineeringModel').value)||0],variants=(m?.variants||[]).filter(v=>['entry','script_enable','script_disable'].includes(v.action));
-  const select=$('engineeringVariant');select.replaceChildren();variants.forEach((v,i)=>select.add(new Option(variantLabel(v),String(i))));select._variants=variants;
-  $('engineeringTitle').textContent=m?.model||'—';$('engineeringTutorial').textContent=tr('工程文件来自 Pentax Labs 当前 engineering_payload。\n选择入口后直接选择 SD 卡根目录写入；网页不会修改照片或其他文件。','Engineering files come from the current Pentax Labs engineering payload.\nChoose an entry and then select the SD-card root. Photos and unrelated files are not modified.');
+  const m=engineeringModels()[Number($('engineeringModel').value)||0],variants=m?.variants||[],select=$('engineeringVariant');
+  select.replaceChildren();variants.forEach((v,i)=>select.add(new Option(variantLabel(v),String(i))));
+  if(!variants.length)select.add(new Option(tr('按键进入 · 无需导出文件','Button entry · no files to export'),''));
+  select.disabled=!variants.length;select._variants=variants;
+  const canExport=variants.some(v=>Object.keys(v.files||{}).length>0),exportButton=$('engineeringExportBtn');
+  exportButton.disabled=!canExport;exportButton.textContent=canExport?tr('导出工程文件','Export engineering files'):tr('仅查看教程','Tutorial only');
+  $('engineeringTitle').textContent=m?`${m.display||m.model}${m.status?' · '+m.status:''}`:'—';
+  let tutorial=m?.tutorial||m?.note||tr('该机型暂无工程模式说明。','No service-mode instructions are available for this model.');
+  if(m?.note&&tutorial&&!tutorial.includes(m.note))tutorial+='\n\n'+m.note;
+  $('engineeringTutorial').textContent=tutorial;
 }
 async function exportEngineering(){
-  const variants=$('engineeringVariant')._variants||[],v=variants[Number($('engineeringVariant').value)||0];if(!v)return;
+  const model=engineeringModels()[Number($('engineeringModel').value)||0],variants=$('engineeringVariant')._variants||[],v=variants[Number($('engineeringVariant').value)||0];
+  if(!v||!Object.keys(v.files||{}).length)return notify('该机型仅提供按键教程，无可导出文件');
   const files={};for(const [name,b64] of Object.entries(v.files||{}))files[name]=base64Bytes(b64);
   try{
     if(window.showDirectoryPicker){
       const root=await chooseExportRoot('pentax-labs-engineering-root');
       await writeFilesToDirectory(root,files);notify('工程文件已直接写入 '+(root.name||'所选目录'));return;
     }
-    downloadBlob('PentaxLabs_'+engineeringModels()[Number($('engineeringModel').value)||0].model+'_Engineering.zip',zipStore(files),'application/zip');
+    downloadBlob('PentaxLabs_'+safeName(model.display||model.model)+'_Engineering.zip',zipStore(files),'application/zip');
     notify('当前浏览器不支持目录直写，已回退下载 ZIP');
   }catch(e){if(e?.name!=='AbortError')notify(e.message||String(e));}
 }
 function refreshSeason(){
-  const m=engineeringModels()[Number($('seasonModel').value)||0],trigger=(m?.variants||[]).find(v=>v.action==='script_enable'),activate=(m?.variants||[]).find(v=>v.action==='activate'&&Number(v.mask)===15);
+  const m=seasonModels()[Number($('seasonModel').value)||0],trigger=(m?.variants||[]).find(v=>v.action==='script_enable'),activate=(m?.variants||[]).find(v=>v.action==='activate'&&Number(v.mask)===15);
   $('seasonInfo').textContent=m?`${m.model} · 工程触发：${Object.keys(trigger?.files||{}).filter(x=>x!=='DEVELOP.MOD').join('、')||'—'} · 四季 startup.ttl：${activate?'已归档':'缺失'}`:'—';
 }
 async function exportSeason(){
-  const m=engineeringModels()[Number($('seasonModel').value)||0],first=(m?.variants||[]).find(v=>v.action==='script_enable'),second=(m?.variants||[]).find(v=>v.action==='activate'&&Number(v.mask)===15);
+  const m=seasonModels()[Number($('seasonModel').value)||0],first=(m?.variants||[]).find(v=>v.action==='script_enable'),second=(m?.variants||[]).find(v=>v.action==='activate'&&Number(v.mask)===15);
   if(!first||!second)return notify('当前机型缺少完整四季数据');
   const files={};for(const [name,b64] of Object.entries(first.files||{}))files[name]=base64Bytes(b64);for(const [name,b64] of Object.entries(second.files||{}))files[name]=base64Bytes(b64);
   files['使用说明.txt']='Pentax Labs 四季滤镜\n第一次开机：通过工程触发尝试启用 Script Mode；正常关机。\n第二次开机：保持同一张卡正常开机，执行 script/startup.ttl。\n';
@@ -567,15 +578,6 @@ async function loadCpPhoto(file){
 function cpModeData(){return state.cpNative?.modes?.[state.cpMode]||{bases:[],limits:[]};}
 function cpBaseId(){const bases=cpModeData().bases;return bases[Math.max(0,Math.min(state.cpBaseIndex,bases.length-1))]??0;}
 function cpMatrixFor(base=cpBaseId()){return state.cpNative.matrices_q8[String(base)].map(row=>row.map(Number));}
-function renderCpMatrix(){
-  const grid=$('cpMatrixGrid');grid.replaceChildren();const matrix=cpMatrixFor();
-  grid.appendChild(document.createElement('span'));
-  ['r','g','b'].forEach((key,index)=>{const label=document.createElement('span');label.className='matrix-axis '+key;label.textContent=['R','G','B'][index];grid.appendChild(label);});
-  for(let row=0;row<3;row++)for(let col=0;col<3;col++){
-    if(col===0){const label=document.createElement('span');label.className='matrix-axis '+['r','g','b'][row];label.textContent=['R','G','B'][row];grid.appendChild(label);}
-    const value=document.createElement('span');value.className='matrix-cell readonly'+(row===col?' diagonal':'');value.textContent=String(Math.round(matrix[row][col]));grid.appendChild(value);
-  }
-}
 function chooseCpCurve(channel,selected){
   const next=state.cpCurves.split(''),old=next[channel],value=String(selected);
   if(state.cpMode==='random'){
@@ -600,10 +602,8 @@ function renderCpUi(){
   document.querySelectorAll('[data-cp-inspector]').forEach(b=>b.classList.toggle('on',b.dataset.cpInspector===state.cpInspector));
   document.querySelectorAll('[data-cp-inspector-pane]').forEach(p=>p.classList.toggle('active',p.dataset.cpInspectorPane===state.cpInspector));
   $('cpMode').value=state.cpMode;const select=$('cpBase');select.replaceChildren();cpModeData().bases.forEach((base,index)=>select.add(new Option(`${String(base).padStart(2,'0')} · ${state.cpNative.labels[String(base)]}`,String(index))));select.value=String(state.cpBaseIndex);
-  renderCpMatrix();
   const controls=$('cpNativeControls');controls.replaceChildren();const limits=cpModeData().limits;
   state.cpNative.control_labels.forEach((label,index)=>{const wrap=document.createElement('label');wrap.className='control';const head=document.createElement('span'),name=document.createElement('span'),out=document.createElement('output');name.textContent=tr(label,label);out.textContent=String(state.cpControls[index]);head.append(name,out);const slider=document.createElement('input');slider.type='range';slider.min=limits[index][0];slider.max=limits[index][1];slider.step='1';slider.value=state.cpControls[index];slider.oninput=()=>{state.cpControls[index]=Number(slider.value);out.textContent=slider.value;renderCp();};wrap.append(head,slider);controls.appendChild(wrap);});
-  $('cpMatrixNote').textContent=tr('固定原厂矩阵 · 从基底库选择','Fixed OEM matrix · Select a factory base');
   ['R','G','B'].forEach((name,index)=>{$('cpCurve'+name).value=state.cpCurves[index];});$('cpCurveCode').textContent=state.cpCurves;drawCpCurve();
   translateStatic(document.body);
 }
@@ -687,7 +687,7 @@ function installEvents(){
 async function start(){
   installEvents();
   try{
-    setStatus(tr('加载 Beta82 Web','Loading Beta82 Web'));await loadLibraries();initializeSlots();rebuildFactorySlots();
+    setStatus(tr('加载 Beta83 Web','Loading Beta83 Web'));await loadLibraries();initializeSlots();rebuildFactorySlots();
     const [k1iiRuntime,k1Runtime]=await Promise.all([loadBuiltinRuntime('k1ii'),loadBuiltinRuntime('k1')]);
     state.runtimeBases.k1ii=k1iiRuntime;state.runtimeBases.k1=k1Runtime;
     const hash=location.hash.replace(/^#/,'');if(FEATURES.some(x=>x[0]===hash))state.currentPage=hash;
@@ -699,7 +699,7 @@ async function start(){
       }
       hydrateUserSources();refresh();persist();
     }catch(e){console.warn('IndexedDB unavailable',e);notify('浏览器持久存储不可用，本次会话仍可使用');}
-    let ready=tr('就绪','Ready')+' · Beta82 Web';
+    let ready=tr('就绪','Ready')+' · Beta83 Web';
     if(state.sdRoot&&await state.sdRoot.queryPermission?.({mode:'readwrite'})==='granted')
       ready+=' · SD '+(/dcram/i.test(state.sdRoot.name||'')?'DCRAM':(state.sdRoot.name||''));
     setStatus(ready);
