@@ -139,14 +139,31 @@ const RUNTIME_SHA={
   k1ii:{
     'P.BIN':'5c59598cad7077a6b6f28407d82751ef1a568c78ec2ccdc7f12d2359095cccd9',
     'R.BIN':'5ea9ab6e862edb4a7eb215e48859c8f37a6e67ec9658a7f4eadfe6d5ca4186cf',
-    'startup.ttl':'4d86444e4a403b03a2ccc1862256315c765634c443e60a82caea4da15ef50771',
+    // GitHub Pages serves text files with LF after Git normalization. Pin the
+    // LF-normalized script identity, then restore CRLF before writing to SD.
+    'startup.ttl':'08078abd909311fefb3627d8a5a632016e5b98f30b9d6225c9c5dd19038d3fb8',
   },
   k1:{
     'P.BIN':'c5cfb69843caf792f74ba14d38ae0456e99e64d342fa6ee1f989ab47fe7e47b2',
     'R.BIN':'f3727523cb5cd1807748bb555346b55253cafd382f6ba29560993ddf72e68d61',
-    'startup.ttl':'3acfe32e777a84205ecc39d4b014d167ae788e2695b7e1999f3d77549a763130',
+    'startup.ttl':'7e061ec181ad2b48303d952da828ad72bcdf1d23fd2ba76cfd41ca5cace280d4',
   },
 };
+
+function lfNormalized(bytes){
+  const out=[];
+  for(let i=0;i<bytes.length;i++){
+    if(bytes[i]===13&&bytes[i+1]===10)continue;
+    out.push(bytes[i]);
+  }
+  return new Uint8Array(out);
+}
+
+function crlfNormalized(bytes){
+  const lf=lfNormalized(bytes),out=[];
+  for(const value of lf){if(value===10)out.push(13);out.push(value);}
+  return new Uint8Array(out);
+}
 
 export async function loadBuiltinRuntime(cameraModel) {
   const key=cameraModel==='k1'?'k1':'k1ii';
@@ -159,12 +176,12 @@ export async function loadBuiltinRuntime(cameraModel) {
   ]);
   if(p.length!==4096) throw Error('内置 P.BIN 长度异常');
   if(r.length<0x16B48) throw Error('内置 R.BIN 长度异常');
-  const hashes=await Promise.all([sha256(p),sha256(r),sha256(ttl)]);
+  const hashes=await Promise.all([sha256(p),sha256(r),sha256(lfNormalized(ttl))]);
   for(const [name,actual] of [['P.BIN',hashes[0]],['R.BIN',hashes[1]],['startup.ttl',hashes[2]]])
     if(actual!==RUNTIME_SHA[key][name])throw Error(`${key} ${name} SHA256 不匹配，拒绝导出`);
   const expected=key==='k1'?'K1N29':'K12EN81';
   if(!dec.decode(ttl).includes(expected)) throw Error('内置脚本与当前机型不匹配：'+expected);
-  return {cameraModel:key,p,r,ttl,loadedAt:Date.now(),builtin:true};
+  return {cameraModel:key,p,r,ttl:crlfNormalized(ttl),loadedAt:Date.now(),builtin:true};
 }
 
 export function compileCameraScriptFiles(slots,cameraModel,base) {
