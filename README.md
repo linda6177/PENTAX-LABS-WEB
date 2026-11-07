@@ -1,42 +1,24 @@
 # Pentax Labs Web
 
-Pentax Labs 的浏览器版。Windows 主程序仍是功能真源；Web 与主源码同仓库维护，通过安全白名单同步到公开的 linda6177/PENTAX-LABS-WEB GitHub Pages 仓库。
+Pentax Labs beta80 的浏览器版。Windows 主程序仍是研发真源；Web 从同一生产滤镜库、相对曲线模型与机内运行模板构建，通过 `tools/publish_web_public.py` 同步到公开 Pages 仓库。
 
-## beta81 Web
+## beta80 Web parity
 
-这一版不再是早期的 CUBE/Project 导出演示页，核心目标改为“浏览器里直接完成机内滤镜编辑并导出相机脚本”。
+- 自定义滤镜页按桌面 `Main.qml` 复刻：82px 顶栏、三槽居中、顶部“导出脚本”、左侧滤镜库、中间纯预览画布 + 52px 工具条、右侧“色彩矩阵 / 通道曲线”、47px 底栏。
+- 保留 beta80 Lite 页面：自定义滤镜、正负逆冲、工程模式、四季滤镜、*ist D 工具箱；不提供脚本模块和快门查询。
+- K12 当前 17 个生产滤镜与用户 CUBE 导入均可用。
+- 导入 JPG / PNG / WebP / AVIF 后，中间主预览与左侧全部 76×56 滤镜缩略图使用同一张照片同步重算；切回色卡同理。
+- Matrix 使用桌面相同 Natural-relative 显示/回写，9 格可编辑。
+- Master / R / G / B 曲线使用桌面 P317/DCU5 Natural-relative 显示模型，不显示裸 U14 绝对值。
+- 亮度、对比度、饱和度、色相与最终 RGB 曲线都会进入机内脚本编译。
+- K-1 II 与 K-1 正式 beta80 运行模板随 Web 发布，不再要求用户选择 P.BIN / R.BIN / startup.ttl 底座。
+- 顶部“导出脚本”在支持 File System Access API 的浏览器中直接写入所选 SD 根目录的 `script/`。目录句柄保存在 IndexedDB，后续优先复用；若目录名为 DCRAM，会标记为 DCRAM SD 卡。
 
-- 响应式复刻桌面 beta80 的 1380×835 三栏布局；1120×690 仍可完整显示。
-- 三个自定义槽、K12 当前 17 个生产滤镜、用户 CUBE 导入、本地照片/24 色卡预览、原图按住对比。
-- Matrix UI 使用与桌面相同的 Natural-relative 显示/回写基准，9 格全部可编辑且行和保持 256。
-- 曲线 UI 使用桌面 relative_curves.py 同一套 P317/DCU5 Natural-relative 显示模型，提供 Master / R / G / B 四通道，不显示裸 U14 绝对数组。
-- 饱和度、色相、亮度、对比度、Master/RGB 曲线都进入最终机内参数。
-- 主导出为真正的相机 script/ ZIP，不再把 CUBE / 参数 JSON / Project JSON 当成交付目标。
-- K-1 / K-1 II 脚本编译会重写三槽 Q13 Matrix、最终 3×256 U14、标题、图标、槽位计数、Natural ID、R/P CRC。
-- 为避免公开分发 P.BIN / R.BIN / startup.ttl，首次使用时选择桌面 Pentax Labs 已导出的同机型 script 文件夹一次；底座只保存在当前浏览器 IndexedDB，之后可直接反复导出。
+浏览器安全模型不允许网页静默枚举 Windows 盘符或读取所有卷标，因此第一次无法在没有用户授权的情况下自动扫描并选中 DCRAM。第一次点击“导出脚本”需要在系统目录选择器中选一次 SD 卡根目录；之后 Edge/Chrome 会复用该授权目录。无法使用目录写入 API 的浏览器回退为 script ZIP 下载。
 
-侧栏同时恢复桌面主程序的页面结构：
+## *ist D
 
-- 脚本模块：M1 自定义滤镜可直接构建；桌面端仍处于研究状态的 M2/M3 不伪装成正式功能。
-- 正负逆冲：本地照片预览、基础影调/去色罩和 PNG 导出。
-- 工程模式：读取当前 engineering_payload.json，浏览器本地打包工程入口文件。
-- 四季滤镜：按桌面双次开机逻辑生成工程触发文件 + script/startup.ttl。
-- 快门查询：Web 本地读取明确的计数字段；桌面 ExifTool 版本仍是完整兼容实现。
-- *ist D 工具箱：AF Fine Adjustment 可直接生成 KB321.EEP + MODSET.TXT；中文固件二进制不进入公开 Pages。
-
-## 相对曲线数据
-
-web_preview/assets/relative_curve_profiles.json 是从桌面端当前 P317/DCU5 实测模型抽出的 UI 所需 257 点显示数据和原生 Natural 参考，不包含原始 1 MB NPZ 研究包。Web Bright/R 定向交叉验证与桌面 relative_curves.response() 最大显示差约 7.7e-8 / 255。
-
-## 相机脚本底座
-
-公开 Pages 不会携带 P.BIN、R.BIN、ROM/NAND、原厂固件或私人样张。首次点击“选择 script 底座”时，直接选择桌面版已经导出的整个 script 文件夹即可。浏览器自动识别：
-
-- script/startup.ttl
-- script/T/P.BIN
-- script/T/R.BIN
-
-这些字节只进入本机浏览器存储，不上传服务器。K-1 与 K-1 II 分开保存。
+Web 同步 beta80 Lite 的中文固件与焦点补偿入口：中文固件固定输出 `FWDC112B.BIN`；AF Fine Adjustment 输出 `KB321.EEP + MODSET.TXT`。
 
 ## 定向验证
 
@@ -44,12 +26,10 @@ web_preview/assets/relative_curve_profiles.json 是从桌面端当前 P317/DCU5 
     node web_preview/runtime_verify.mjs k1ii
     node web_preview/runtime_verify.mjs k1
 
-运行时编译器已经与桌面 native.compile_slot() 交叉核对 Matrix 源 Q13、最终 RGB U14、槽位 mask 和 CRC。
+K-1 / K-1 II 运行时编译器已与桌面核心交叉核对 Matrix 源 Q13、最终 RGB U14、槽位 mask 与 R/P CRC。Edge 1120×690 与 1380×835 本地 HTTP 首屏均能加载 17 个生产滤镜和完整自定义滤镜 UI。
 
 ## 发布
 
-私有 monorepo 是唯一研发真源。公开 Pages 只同步白名单文件：
-
     python tools/publish_web_public.py --push
 
-同步内容包括 Web HTML/CSS/JS、相对曲线 UI 数据、当前生产滤镜库和工程模式数据；不会复制整个私有仓库。
+公开仓库只同步明确白名单：Web 静态文件、生产滤镜/曲线/工程数据、K-1/K-1 II Web 运行模板和 *ist D 中文固件，不同步 NAND、ROM、研究样张或私有研究目录。

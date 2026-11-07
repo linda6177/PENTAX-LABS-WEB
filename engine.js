@@ -1,5 +1,6 @@
 /* Pentax Labs Web engine.
- * Browser-side colour/model helpers. No firmware/runtime binary is embedded.
+ * Browser-side colour/model helpers. Camera runtime templates are loaded
+ * separately by runtime.js so the colour engine stays deterministic.
  */
 
 export const WHITE = 16383;

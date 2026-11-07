@@ -4,19 +4,18 @@ import {
   relativeCurve, applyRelativeCurve, applyColorControls,
 } from './engine.js';
 import {
-  readRuntimeFiles, compileCameraScript, buildFocusZip, base64Bytes, zipStore,
+  loadBuiltinRuntime, compileCameraScript, compileCameraScriptFiles,
+  buildFocusZip, base64Bytes, zipStore,
 } from './runtime.js';
 
 const $=id=>document.getElementById(id);
-const STORAGE_KEY='pentax-labs-web-beta81-v1';
+const STORAGE_KEY='pentax-labs-web-beta80-parity-v2';
 const DB_NAME='PentaxLabsWeb', DB_STORE='userFilters';
 const FEATURES=[
   ['filters','自定义滤镜','Custom Filters'],
-  ['modules','脚本模块','Script Modules'],
   ['cp','正负逆冲','Cross Processing'],
   ['engineering','工程模式','Service & Factory'],
   ['seasons','四季滤镜','Four Seasons'],
-  ['shutter','快门查询','Shutter Counter'],
   ['istd','*ist D 工具箱','*ist D Toolbox'],
 ];
 
@@ -24,14 +23,18 @@ const state={
   currentPage:'filters',family:null,factoryRows:[],factorySlots:new Map(),natural:null,
   curveProfiles:null,engineeringPayload:null,users:new Map(),db:null,tab:'factory',
   active:0,cameraModel:'k1ii',previewMode:'camera',slots:[],bases:[],channel:0,
-  comparing:false,sourceName:'内置色卡',runtimeBases:{k1:null,k1ii:null},
+  comparing:false,compareMode:0,split:.5,sourceName:'内置色卡',sourceMode:'chart',
+  runtimeBases:{k1:null,k1ii:null},sdRoot:null,
   cpOriginal:null,cpNeutral:[1,1,1],
 };
 const original=document.createElement('canvas');
 const originalContext=original.getContext('2d',{willReadFrequently:true});
 const preview=$('previewCanvas'), previewContext=preview.getContext('2d');
+const thumbOriginal=document.createElement('canvas'),thumbOriginalContext=thumbOriginal.getContext('2d',{willReadFrequently:true});
 const cpOriginal=document.createElement('canvas'), cpOriginalCtx=cpOriginal.getContext('2d',{willReadFrequently:true});
 let renderTimer=0,toastTimer=0,curvePointer=null;
+let thumbRevision=0;
+const thumbCache=new Map();
 
 function currentSlot(){return state.slots[state.active];}
 function currentBase(){return state.bases[state.active];}
@@ -43,7 +46,7 @@ function downloadBlob(filename,data,type='application/octet-stream'){
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function notify(message){const t=$('toast');t.textContent=message;t.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('visible'),2800);}
-function setStatus(message){$('footerStatus').textContent=message;}
+function setStatus(message){$('footerStatus').textContent=message;if($('headerStatus'))$('headerStatus').textContent=message;}
 function stripSource(slot){const copy=cloneSlot(slot);copy.sourceLut=null;return copy;}
 function normalizeSlotShape(slot){
   if(!slot.masterCurve) slot.masterCurve=Array.from({length:256},(_,i)=>i*WHITE/255);
@@ -55,7 +58,7 @@ function normalizeSlotShape(slot){
 function persist(){
   try{localStorage.setItem(STORAGE_KEY,JSON.stringify({
     currentPage:state.currentPage,active:state.active,cameraModel:state.cameraModel,tab:state.tab,
-    slots:state.slots.map(stripSource),bases:state.bases.map(stripSource)
+    compareMode:state.compareMode,slots:state.slots.map(stripSource),bases:state.bases.map(stripSource)
   }));}catch(error){console.warn(error);}
 }
 function restoreLocal(){
@@ -100,6 +103,7 @@ function initializeSlots(){
     state.currentPage=FEATURES.some(x=>x[0]===restored.currentPage)?restored.currentPage:'filters';
     state.active=Math.max(0,Math.min(2,Number(restored.active)||0));
     state.cameraModel=restored.cameraModel==='k1'?'k1':'k1ii';state.tab=restored.tab==='user'?'user':'factory';
+    state.compareMode=Math.max(0,Math.min(2,Number(restored.compareMode)||0));
     state.slots=restored.slots.map(slot=>normalizeSlotShape({...slot,sourceLut:null,camera_model:state.cameraModel}));
     state.bases=restored.bases.map(slot=>normalizeSlotShape({...slot,sourceLut:null,camera_model:state.cameraModel}));return;
   }
@@ -123,50 +127,79 @@ function renderNav(){
 function goPage(key){
   state.currentPage=key;
   document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.dataset.page===key));
-  $('headerSlots').style.visibility=key==='filters'?'visible':'hidden';closeNav();renderNav();persist();
+  $('headerSlots').parentElement.style.visibility=key==='filters'?'visible':'hidden';$('exportScriptBtn').style.visibility=key==='filters'?'visible':'hidden';closeNav();renderNav();persist();
   $('footerContext').style.visibility=key==='filters'?'visible':'hidden';
   if(location.hash!=='#'+key) history.replaceState(null,'','#'+key);
 }
 function openNav(){$('sideNav').classList.add('open');$('navMask').classList.add('open');}
 function closeNav(){$('sideNav').classList.remove('open');$('navMask').classList.remove('open');}
 
-function rgbCss(rgb){return 'rgb('+rgb.map(v=>Math.round(Math.max(0,Math.min(1,v))*255)).join(',')+')';}
-function swatchForSlot(slot){
-  const p=prepareRelativeProxy(slot,state.natural),samples=[[.8,.3,.22],[.25,.55,.75],[.25,.72,.42]];
-  return 'linear-gradient(125deg,'+samples.map(rgb=>rgbCss(applyPreparedRelative(p,rgb))).join(',')+')';
+function syncThumbnailSource(){
+  if(!original.width||!original.height)return;
+  thumbRevision++;thumbCache.clear();
+  thumbOriginal.width=152;thumbOriginal.height=112;
+  const scale=Math.max(152/original.width,112/original.height);
+  const width=original.width*scale,height=original.height*scale;
+  thumbOriginalContext.clearRect(0,0,152,112);
+  thumbOriginalContext.drawImage(original,(152-width)/2,(112-height)/2,width,height);
+}
+function paintFilterThumb(canvas,slot,cacheKey){
+  if(!thumbOriginal.width||!state.natural)return;
+  const key=thumbRevision+':'+cacheKey;
+  const cached=thumbCache.get(key);if(cached){canvas.getContext('2d').putImageData(cached,0,0);return;}
+  const ctx=canvas.getContext('2d'),image=thumbOriginalContext.getImageData(0,0,152,112),px=image.data;
+  const prepared=prepareRelativeProxy(slot,state.natural);
+  for(let i=0;i<px.length;i+=4){
+    const out=applyPreparedRelative(prepared,[px[i]/255,px[i+1]/255,px[i+2]/255]);
+    px[i]=Math.round(out[0]*255);px[i+1]=Math.round(out[1]*255);px[i+2]=Math.round(out[2]*255);
+  }
+  thumbCache.set(key,image);ctx.putImageData(image,0,0);
 }
 function userItems(){return Array.from(state.users.values()).sort((a,b)=>Number(b.importedAt||0)-Number(a.importedAt||0));}
 function renderFilterList(){
   const term=$('filterSearch').value.trim().toLowerCase(),list=$('filterList');list.replaceChildren();
   const factory=state.tab==='factory',items=factory?state.factoryRows:userItems();
   const filtered=items.filter(item=>String(factory?item.label:item.name).toLowerCase().includes(term));
-  $('filterCategory').textContent=factory?'原厂滤镜':'用户滤镜';$('filterCount').textContent=filtered.length+' 个';
+  $('filterCategory').textContent=factory?'原厂风格':'用户滤镜';$('filterCount').textContent=filtered.length+' 个';
   $('factoryTab').classList.toggle('on',factory);$('userTab').classList.toggle('on',!factory);
   if(!filtered.length){const e=document.createElement('div');e.className='empty-list';e.textContent=factory?'没有匹配的原厂滤镜':'尚无用户滤镜，导入 .cube 后会保存在这里';list.appendChild(e);return;}
   filtered.forEach(item=>{
     const slot=factory?state.factorySlots.get(item.key):item.slot,row=document.createElement('div');row.className='filter-row';
     const b=document.createElement('button');b.className='filter-item';
     const selected=factory?(currentSlot().preset_key===item.key&&!currentSlot().user_preset_id):currentSlot().user_preset_id===item.id;b.classList.toggle('active',selected);
-    const thumb=document.createElement('span');thumb.className='thumb';thumb.style.background=swatchForSlot(slot);
+    const thumb=document.createElement('canvas');thumb.className='thumb';thumb.width=152;thumb.height=112;
     const copy=document.createElement('span');copy.className='filter-label';const title=document.createElement('b');title.textContent=factory?item.label:item.name;
     const sub=document.createElement('small');sub.textContent=factory?'K12 · Matrix + RGB Gamma':'Web 拟合 · MAE '+(Number.isFinite(item.slot.fit_report?.rgb_mae_255)?item.slot.fit_report.rgb_mae_255.toFixed(2)+'/255':'—');
-    copy.append(title,sub);b.append(thumb,copy);b.onclick=()=>applyPreset(factory?item.key:item.id,factory);row.appendChild(b);
+    copy.append(title,sub);b.append(thumb,copy);
+    if(selected){const indicator=document.createElement('span');indicator.className='filter-indicator';b.appendChild(indicator);}
+    b.onclick=()=>applyPreset(factory?item.key:item.id,factory);row.appendChild(b);
     if(!factory){const del=document.createElement('button');del.className='delete-filter';del.textContent='×';del.title='删除用户滤镜';del.onclick=async e=>{e.stopPropagation();await deleteUser(item.id);};row.appendChild(del);}
-    list.appendChild(row);
+    list.appendChild(row);paintFilterThumb(thumb,slot,factory?item.key:item.id);
   });
 }
 function renderSlots(){
   const root=$('headerSlots');root.replaceChildren();
   state.slots.forEach((slot,index)=>{
-    const b=document.createElement('button');b.className='header-slot';b.classList.toggle('active',index===state.active);b.style.opacity=slot.enabled?'1':'.5';
-    b.innerHTML=`<small>${String(index+1).padStart(2,'0')} · ${slot.enabled?'●':'○'}</small><strong>${slot.name||'CUST'}</strong>`;
-    b.title='单击选择；双击启用/停用';b.onclick=()=>{state.active=index;persist();refresh();};b.ondblclick=()=>{slot.enabled=!slot.enabled;persist();renderSlots();};
-    root.appendChild(b);
+    const card=document.createElement('div');card.className='header-slot';card.classList.toggle('active',index===state.active);card.classList.toggle('enabled',slot.enabled);
+    const dot=document.createElement('button');dot.className='slot-enable';dot.textContent=slot.enabled?'✓':'';dot.title=slot.enabled?'停用槽位':'启用槽位';
+    dot.onclick=e=>{e.stopPropagation();slot.enabled=!slot.enabled;persist();renderSlots();};
+    const copy=document.createElement('div');copy.className='slot-copy';
+    const name=document.createElement('strong');name.textContent=slot.name||'CUST';
+    const sub=document.createElement('small');
+    const factory=state.factoryRows.find(row=>row.key===slot.preset_key);
+    sub.textContent=slot.user_preset_id?(state.users.get(slot.user_preset_id)?.name||'用户滤镜'):(factory?.label||'尚未选择预设');
+    copy.append(name,sub);card.append(dot,copy);
+    card.onclick=()=>{state.active=index;persist();refresh();};
+    card.ondblclick=e=>{if(e.target===dot)return;const next=prompt('预设名称',slot.name||'CUST');if(next!==null&&next.trim()){slot.name=next.trim().slice(0,12);persist();renderSlots();refreshControls();}};
+    root.appendChild(card);
   });
 }
 function renderMatrix(){
   const grid=$('matrixGrid');grid.replaceChildren();const reference=state.curveProfiles?.natural_matrix_q8||null;const shown=displayMatrix(currentSlot(),state.natural,reference);
+  const corner=document.createElement('span');grid.appendChild(corner);
+  ['r','g','b'].forEach((key,index)=>{const label=document.createElement('span');label.className='matrix-axis '+key;label.textContent=['R','G','B'][index];grid.appendChild(label);});
   for(let row=0;row<3;row++)for(let col=0;col<3;col++){
+    if(col===0){const label=document.createElement('span');label.className='matrix-axis '+['r','g','b'][row];label.textContent=['R','G','B'][row];grid.appendChild(label);}
     const input=document.createElement('input');input.type='number';input.step='1';input.min='-2048';input.max='2047';input.value=Math.round(shown[row][col]);
     input.className=row===col?'matrix-cell diagonal':'matrix-cell';
     input.onchange=()=>{
@@ -189,24 +222,18 @@ function drawCurve(){
   const colors=['#d7d7de','#ef6767','#6fd58b','#6ba4ff'];ctx.strokeStyle=colors[state.channel];ctx.lineWidth=2.2;ctx.beginPath();
   values.forEach((v,i)=>{const x=i/(values.length-1)*w,y=h-Math.max(0,Math.min(1,v))*h;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();
 }
-function updateReport(){
-  const r=currentSlot().fit_report||{};
-  $('fitReport').textContent=Number.isFinite(r.rgb_mae_255)?`Web 参数拟合 RGB MAE ${r.rgb_mae_255.toFixed(3)}/255 · Max ${Number(r.rgb_max_255||0).toFixed(3)}/255`:
-    Number.isFinite(r.mean_de00)?`beta80 生产预设 · 模型 ΔE00 平均 ${r.mean_de00.toFixed(3)} · P95 ${Number(r.p95_de00||0).toFixed(3)}`:'Matrix / RGB Gamma 本地编辑';
-}
-function runtimeLabel(){
-  const base=state.runtimeBases[state.cameraModel];$('runtimeStatus').textContent=base?'已载入 · '+(state.cameraModel==='k1'?'K-1':'K-1 II'):'未载入底座';
-}
 function refreshControls(){
   const slot=currentSlot();$('brightness').value=Number(slot.brightness_ev||0);$('brightnessVal').textContent=(slot.brightness_ev>=0?'+':'')+Number(slot.brightness_ev||0).toFixed(2)+' EV';
   $('contrast').value=Number(slot.contrast||0);$('contrastVal').textContent=String(Math.round(Number(slot.contrast||0)));
-  $('saturation').value=Number(slot.color_sat??1);$('saturationVal').textContent=Number(slot.color_sat??1).toFixed(2);
+  $('saturation').value=Number(slot.color_sat??1);$('saturationVal').textContent=Number(slot.color_sat??1).toFixed(2)+' ×';
   $('hue').value=Number(slot.color_hue||0);$('hueVal').textContent=Math.round(Number(slot.color_hue||0))+'°';
-  $('cameraModel').value=state.cameraModel;$('moduleCamera').value=state.cameraModel;$('footerCamera').textContent=state.cameraModel==='k1'?'PENTAX K-1':'PENTAX K-1 II';
-  $('activeFilter').textContent=slot.name||'CUST';$('footerFilter').textContent=slot.name||'CUST';
+  $('cameraModel').value=state.cameraModel;$('footerCamera').textContent=state.cameraModel==='k1'?'PENTAX K-1':'PENTAX K-1 II';
+  $('footerFilter').textContent=slot.name||'CUST';
   $('lutModeBtn').classList.toggle('on',state.previewMode==='lut');$('cameraModeBtn').classList.toggle('on',state.previewMode==='camera');$('lutModeBtn').classList.toggle('disabled',!slot.sourceLut);
+  $('chartBtn').classList.toggle('on',state.sourceMode==='chart');$('photoBtn').classList.toggle('on',state.sourceMode==='photo');
+  $('toggleCompare').textContent=state.compareMode===0?'全显示':state.compareMode===1?'左右':'上下';
   $('channelTabs').querySelectorAll('button').forEach(b=>b.classList.toggle('on',Number(b.dataset.channel)===state.channel));
-  renderMatrix();drawCurve();updateReport();runtimeLabel();
+  renderMatrix();drawCurve();
 }
 function refresh(){renderSlots();renderFilterList();refreshControls();queueRender();}
 function applyPreset(identifier,factory){
@@ -222,24 +249,29 @@ async function deleteUser(id){
 }
 
 function chartSource(){
-  state.sourceName='内置色卡';original.width=1200;original.height=660;const ctx=originalContext;ctx.fillStyle='#17191d';ctx.fillRect(0,0,1200,660);
+  state.sourceName='内置色卡';state.sourceMode='chart';original.width=1200;original.height=660;const ctx=originalContext;ctx.fillStyle='#17191d';ctx.fillRect(0,0,1200,660);
   const patches=[[115,82,68],[194,150,130],[98,122,157],[87,108,67],[133,128,177],[103,189,170],[214,126,44],[80,91,166],[193,90,99],[94,60,108],[157,188,64],[224,163,46],[56,61,150],[70,148,73],[175,54,60],[231,199,31],[187,86,149],[8,133,161],[243,243,242],[200,200,200],[160,160,160],[122,122,121],[85,85,85],[52,52,52]];
   const margin=48,gap=14,cw=Math.floor((1200-margin*2-gap*5)/6),ch=104;
   patches.forEach((rgb,i)=>{ctx.fillStyle='rgb('+rgb.join(',')+')';ctx.fillRect(margin+(i%6)*(cw+gap),42+Math.floor(i/6)*(ch+gap),cw,ch);});
   const y=42+4*(ch+gap)+10,g=ctx.createLinearGradient(margin,0,1200-margin,0);g.addColorStop(0,'#000');g.addColorStop(1,'#fff');ctx.fillStyle=g;ctx.fillRect(margin,y,1200-margin*2,42);
-  ctx.fillStyle='#98a2b2';ctx.font='15px sans-serif';ctx.fillText('PENTAX LABS · WEB COLOR PREVIEW',margin,26);$('photoLabel').textContent=state.sourceName;queueRender();
+  ctx.fillStyle='#98a2b2';ctx.font='15px sans-serif';ctx.fillText('PENTAX LABS · COLOR PREVIEW',margin,26);syncThumbnailSource();renderFilterList();refreshControls();queueRender();
 }
 async function loadPhoto(file){
   const bitmap=await createImageBitmap(file),factor=Math.min(1,1600/Math.max(bitmap.width,bitmap.height));original.width=Math.max(1,Math.round(bitmap.width*factor));original.height=Math.max(1,Math.round(bitmap.height*factor));
-  originalContext.clearRect(0,0,original.width,original.height);originalContext.drawImage(bitmap,0,0,original.width,original.height);bitmap.close();state.sourceName=file.name;$('photoLabel').textContent=file.name;queueRender();
+  originalContext.clearRect(0,0,original.width,original.height);originalContext.drawImage(bitmap,0,0,original.width,original.height);bitmap.close();state.sourceName=file.name;state.sourceMode='photo';syncThumbnailSource();renderFilterList();refreshControls();queueRender();
 }
 function queueRender(){clearTimeout(renderTimer);renderTimer=setTimeout(renderPreview,24);}
 function renderPreview(){
   if(!original.width||!state.natural||!currentSlot())return;preview.width=original.width;preview.height=original.height;
-  if(state.comparing){previewContext.drawImage(original,0,0);$('renderStatus').textContent='原图 · '+original.width+' × '+original.height;return;}
+  if(state.comparing){previewContext.drawImage(original,0,0);return;}
   const image=originalContext.getImageData(0,0,original.width,original.height),px=image.data,slot=currentSlot(),direct=state.previewMode==='lut'&&slot.sourceLut,p=direct?null:prepareRelativeProxy(slot,state.natural);
   for(let i=0;i<px.length;i+=4){const rgb=[px[i]/255,px[i+1]/255,px[i+2]/255],out=direct?evaluateCube(slot.sourceLut,rgb):applyPreparedRelative(p,rgb);px[i]=Math.round(out[0]*255);px[i+1]=Math.round(out[1]*255);px[i+2]=Math.round(out[2]*255);}
-  previewContext.putImageData(image,0,0);$('renderStatus').textContent=(direct?'原始 LUT':'机内参数 Web proxy')+' · '+original.width+' × '+original.height;
+  previewContext.putImageData(image,0,0);
+  if(state.compareMode===1){
+    const cut=Math.round(preview.width*state.split);previewContext.save();previewContext.beginPath();previewContext.rect(0,0,cut,preview.height);previewContext.clip();previewContext.drawImage(original,0,0);previewContext.restore();previewContext.fillStyle='#e7f0ff';previewContext.fillRect(cut-1,0,2,preview.height);
+  }else if(state.compareMode===2){
+    const cut=Math.round(preview.height*state.split);previewContext.save();previewContext.beginPath();previewContext.rect(0,0,preview.width,cut);previewContext.clip();previewContext.drawImage(original,0,0);previewContext.restore();previewContext.fillStyle='#e7f0ff';previewContext.fillRect(0,cut-1,preview.width,2);
+  }
 }
 async function importFiles(files){
   const cubes=Array.from(files).filter(f=>/\.cube$/i.test(f.name));if(!cubes.length)return;
@@ -257,7 +289,7 @@ function applyColorFromControls(){
   slot.matrix=applyColorControls(slot.colorBaseMatrix||slot.matrix,slot.color_sat,slot.color_hue);persist();refreshControls();queueRender();
 }
 function setInspector(name){
-  document.querySelectorAll('.inspector-tabs button').forEach(b=>b.classList.toggle('on',b.dataset.inspector===name));
+  document.querySelectorAll('.right-tabs button').forEach(b=>b.classList.toggle('on',b.dataset.inspector===name));
   document.querySelectorAll('.inspector-pane').forEach(p=>p.classList.toggle('active',p.dataset.inspectorPane===name));
 }
 function normalizedEdit(values,fromIndex,toIndex,toValue){
@@ -267,13 +299,39 @@ function normalizedEdit(values,fromIndex,toIndex,toValue){
   for(let i=1;i<out.length;i++)out[i]=Math.max(out[i],out[i-1]);return out.map(v=>Math.max(0,Math.min(1,v)));
 }
 
-async function storeRuntimeFiles(files,cameraModel){
-  const base=await readRuntimeFiles(files,cameraModel);state.runtimeBases[cameraModel]=base;
-  await dbPut({id:'__runtime_'+cameraModel,type:'runtime',base});runtimeLabel();notify('机身底座已保存到当前浏览器');
+async function ensureDirectoryPermission(handle){
+  if(!handle)return false;
+  const options={mode:'readwrite'};
+  if((await handle.queryPermission?.(options))==='granted')return true;
+  return (await handle.requestPermission?.(options))==='granted';
 }
-function exportCameraScript(camera=state.cameraModel){
-  try{const blob=compileCameraScript(state.slots,camera,state.runtimeBases[camera]);downloadBlob(`PentaxLabs_${camera==='k1'?'K1':'K1II'}_script.zip`,blob,'application/zip');notify('已生成机内 script/ 包');}
-  catch(e){notify(e.message||String(e));if(/载入/.test(e.message||''))$('runtimeFiles').click();}
+async function chooseSdRoot(){
+  if(state.sdRoot&&await ensureDirectoryPermission(state.sdRoot))return state.sdRoot;
+  if(!window.showDirectoryPicker)return null;
+  const handle=await window.showDirectoryPicker({id:'pentax-labs-sd-root',mode:'readwrite'});
+  if(!await ensureDirectoryPermission(handle))throw Error('没有目标目录写入权限');
+  state.sdRoot=handle;await dbPut({id:'__sd_root_handle',type:'sd-root',handle});return handle;
+}
+async function writeFilesToDirectory(root,files){
+  for(const [path,data] of Object.entries(files)){
+    const parts=path.split('/').filter(Boolean);let dir=root;
+    for(const part of parts.slice(0,-1))dir=await dir.getDirectoryHandle(part,{create:true});
+    const file=await dir.getFileHandle(parts.at(-1),{create:true}),writer=await file.createWritable();
+    await writer.write(data instanceof Uint8Array?data:new TextEncoder().encode(String(data)));await writer.close();
+  }
+}
+async function exportCameraScript(camera=state.cameraModel){
+  try{
+    const base=state.runtimeBases[camera];if(!base)throw Error('当前机型内置运行时尚未加载');
+    const files=compileCameraScriptFiles(state.slots,camera,base);
+    if(window.showDirectoryPicker){
+      const root=await chooseSdRoot();await writeFilesToDirectory(root,files);
+      const label=/dcram/i.test(root.name||'')?'DCRAM SD卡':(root.name||'所选目录');
+      setStatus('脚本已写入 '+label+' 根目录');notify('已直接写入 '+label+' /script');return;
+    }
+    downloadBlob(`PentaxLabs_${camera==='k1'?'K1':'K1II'}_script.zip`,compileCameraScript(state.slots,camera,base),'application/zip');
+    notify('当前浏览器不支持目录直写，已下载 script ZIP');
+  }catch(e){if(e?.name==='AbortError')return;notify(e.message||String(e));}
 }
 
 function engineeringModels(){return state.engineeringPayload?.filters||[];}
@@ -307,6 +365,20 @@ function exportSeason(){
   downloadBlob('PentaxLabs_'+m.model+'_FourSeasons.zip',zipStore(files),'application/zip');
 }
 
+async function exportIstdFirmware(){
+  try{
+    let response=await fetch('./assets/istd_chinese.bin',{cache:'no-cache'});
+    if(!response.ok)response=await fetch('../app/lab_assets/istd_chinese.bin',{cache:'no-cache'});
+    if(!response.ok)throw Error('中文固件资源加载失败');
+    const data=new Uint8Array(await response.arrayBuffer());
+    if(window.showSaveFilePicker){
+      const handle=await window.showSaveFilePicker({suggestedName:'FWDC112B.BIN',types:[{description:'PENTAX Firmware',accept:{'application/octet-stream':['.BIN']}}]});
+      const writer=await handle.createWritable();await writer.write(data);await writer.close();notify('已保存 FWDC112B.BIN');return;
+    }
+    downloadBlob('FWDC112B.BIN',data,'application/octet-stream');
+  }catch(e){if(e?.name!=='AbortError')notify(e.message||String(e));}
+}
+
 async function loadCpPhoto(file){
   const bitmap=await createImageBitmap(file),factor=Math.min(1,1400/Math.max(bitmap.width,bitmap.height));cpOriginal.width=Math.max(1,Math.round(bitmap.width*factor));cpOriginal.height=Math.max(1,Math.round(bitmap.height*factor));cpOriginalCtx.drawImage(bitmap,0,0,cpOriginal.width,cpOriginal.height);bitmap.close();state.cpOriginal=file.name;state.cpNeutral=[1,1,1];renderCp();
 }
@@ -327,40 +399,34 @@ function neutralizeCp(){
   for(let i=0;i<img.length;i+=16){sums[0]+=img[i];sums[1]+=img[i+1];sums[2]+=img[i+2];n++;}
   const avg=sums.map(x=>x/n),gray=(avg[0]+avg[1]+avg[2])/3;state.cpNeutral=avg.map(v=>gray/Math.max(v,1));renderCp();
 }
-async function queryShutter(files){
-  const root=$('shutterResults');root.replaceChildren();
-  for(const file of Array.from(files)){const bytes=new Uint8Array(await file.arrayBuffer()),text=new TextDecoder('latin1').decode(bytes.slice(0,Math.min(bytes.length,8*1024*1024)));
-    const hit=text.match(/(?:MechanicalShutterCount|TotalShutterCount|ShutterCount)[^0-9]{0,48}([0-9]{1,10})/i),model=(text.match(/PENTAX[^\x00\r\n]{0,36}/i)||text.match(/RICOH[^\x00\r\n]{0,36}/i)||[])[0]?.replace(/[^\x20-\x7e]/g,' ').trim()||'未识别机型';
-    const row=document.createElement('div');row.className='shutter-row';row.innerHTML=`<div><strong>${file.name}</strong><small>${model} · ${hit?'找到明确快门计数字段':'未找到明确快门计数字段'}</small></div><div class="shutter-count">${hit?Number(hit[1]).toLocaleString():'—'}</div>`;root.appendChild(row);
-  }
-}
-
 function installEvents(){
   $('navToggle').onclick=openNav;$('navMask').onclick=closeNav;$('homeBtn').onclick=()=>goPage('filters');
   $('factoryTab').onclick=()=>{state.tab='factory';persist();renderFilterList();};$('userTab').onclick=()=>{state.tab='user';persist();renderFilterList();};$('filterSearch').oninput=renderFilterList;
+  $('refreshBtn').onclick=renderFilterList;
   $('importBtn').onclick=()=>$('lutFile').click();$('lutFile').onchange=e=>importFiles(e.target.files);$('photoBtn').onclick=()=>$('photoFile').click();$('photoFile').onchange=async e=>{if(e.target.files[0])try{await loadPhoto(e.target.files[0]);}catch(x){notify('照片读取失败：'+x.message);}e.target.value='';};
-  $('chartBtn').onclick=chartSource;$('resetBtn').onclick=resetCurrent;
+  $('chartBtn').onclick=chartSource;
   $('cameraModel').onchange=()=>{state.cameraModel=$('cameraModel').value==='k1'?'k1':'k1ii';state.slots.forEach(s=>s.camera_model=state.cameraModel);state.bases.forEach(s=>s.camera_model=state.cameraModel);persist();refreshControls();};
   $('brightness').oninput=()=>{currentSlot().brightness_ev=Number($('brightness').value);refreshControls();persist();queueRender();};$('contrast').oninput=()=>{currentSlot().contrast=Number($('contrast').value);refreshControls();persist();queueRender();};
   $('saturation').oninput=applyColorFromControls;$('hue').oninput=applyColorFromControls;
+  $('resetBasicBtn').onclick=()=>{const slot=currentSlot();slot.brightness_ev=0;slot.contrast=0;slot.color_sat=1;slot.color_hue=0;slot.matrix=(slot.colorBaseMatrix||slot.matrix).map(r=>r.slice());persist();refreshControls();queueRender();};
   $('resetMatrixBtn').onclick=()=>{const slot=currentSlot(),base=currentBase();slot.matrix=base.matrix.map(r=>r.slice());slot.colorBaseMatrix=slot.matrix.map(r=>r.slice());slot.color_sat=1;slot.color_hue=0;persist();refreshControls();queueRender();};
-  document.querySelectorAll('.inspector-tabs button').forEach(b=>b.onclick=()=>setInspector(b.dataset.inspector));
+  document.querySelectorAll('.right-tabs button').forEach(b=>b.onclick=()=>setInspector(b.dataset.inspector));
   $('channelTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.channel=Number(b.dataset.channel);refreshControls();});
   $('resetCurveBtn').onclick=()=>{const slot=currentSlot(),base=currentBase();if(state.channel===0)slot.masterCurve=base.masterCurve.slice();else slot.curves[state.channel-1]=base.curves[state.channel-1].slice();persist();drawCurve();queueRender();};
   $('linearCurveBtn').onclick=()=>{const before=curveView(),target=state.curveProfiles.axis.slice();applyRelativeCurve(currentSlot(),state.natural,state.channel,target,before,state.curveProfiles);persist();drawCurve();queueRender();};
+  $('addCurvePointBtn').onclick=()=>notify('曲线可直接拖动；双击位置会作为新的编辑锚点');
   const curve=$('curveCanvas'),pos=e=>{const r=curve.getBoundingClientRect();return {index:Math.max(0,Math.min(256,(e.clientX-r.left)/r.width*256)),value:Math.max(0,Math.min(1,1-(e.clientY-r.top)/r.height))};};
   curve.onpointerdown=e=>{curve.setPointerCapture(e.pointerId);curvePointer={...pos(e),display:curveView(),native:state.channel===0?currentSlot().masterCurve.slice():currentSlot().curves[state.channel-1].slice()};};
   curve.onpointermove=e=>{if(!curvePointer||!curve.hasPointerCapture(e.pointerId))return;const next=pos(e),target=normalizedEdit(curvePointer.display,curvePointer.index,next.index,next.value);if(state.channel===0)currentSlot().masterCurve=curvePointer.native.slice();else currentSlot().curves[state.channel-1]=curvePointer.native.slice();applyRelativeCurve(currentSlot(),state.natural,state.channel,target,curvePointer.display,state.curveProfiles);drawCurve();queueRender();};
   const endCurve=e=>{if(curve.hasPointerCapture(e.pointerId))curve.releasePointerCapture(e.pointerId);curvePointer=null;persist();};curve.onpointerup=endCurve;curve.onpointercancel=endCurve;
   $('cameraModeBtn').onclick=()=>{state.previewMode='camera';refreshControls();queueRender();};$('lutModeBtn').onclick=()=>{if(!currentSlot().sourceLut)return notify('当前滤镜没有保留原始 CUBE');state.previewMode='lut';refreshControls();queueRender();};
-  $('toggleCompare').onpointerdown=()=>{state.comparing=true;renderPreview();};window.addEventListener('pointerup',()=>{if(state.comparing){state.comparing=false;queueRender();}});
-  $('runtimeBtn').onclick=()=>$('runtimeFiles').click();$('runtimeFiles').onchange=async e=>{try{await storeRuntimeFiles(e.target.files,state.cameraModel);}catch(x){notify(x.message||String(x));}e.target.value='';};
-  $('exportScriptBtn').onclick=()=>exportCameraScript();$('moduleExportBtn').onclick=()=>exportCameraScript($('moduleCamera').value);$('moduleCamera').onchange=()=>{};
+  $('toggleCompare').onclick=()=>{state.compareMode=(state.compareMode+1)%3;persist();refreshControls();queueRender();};
+  $('exportScriptBtn').onclick=()=>exportCameraScript();
   $('engineeringExportBtn').onclick=exportEngineering;$('seasonExportBtn').onclick=exportSeason;
   $('cpPhotoBtn').onclick=()=>$('cpPhotoFile').click();$('cpPhotoFile').onchange=async e=>{if(e.target.files[0])await loadCpPhoto(e.target.files[0]);e.target.value='';};
   for(const id of ['cpExposure','cpContrast','cpSat','cpHighlights','cpShadows'])$(id).oninput=()=>{const map={cpExposure:'cpExposureVal',cpContrast:'cpContrastVal',cpSat:'cpSatVal',cpHighlights:'cpHighlightsVal',cpShadows:'cpShadowsVal'};$(map[id]).textContent=Number($(id).value).toFixed(id==='cpExposure'?2:0);renderCp();};
   $('cpNeutralBtn').onclick=neutralizeCp;$('cpExportBtn').onclick=()=>{if(!state.cpOriginal)return notify('请先选择照片');$('cpCanvas').toBlob(blob=>downloadBlob('PentaxLabs_CP.png',blob,'image/png'),'image/png');};
-  $('shutterBtn').onclick=()=>$('shutterFiles').click();$('shutterFiles').onchange=e=>queryShutter(e.target.files);
+  $('firmwareExportBtn').onclick=exportIstdFirmware;
   $('afOffset').oninput=()=>{$('afValue').textContent=(Number($('afOffset').value)>=0?'+':'')+$('afOffset').value;};$('afExportBtn').onclick=()=>downloadBlob('PentaxLabs_istD_AF.zip',buildFocusZip(Number($('afOffset').value)),'application/zip');
   const stage=$('photoStage');stage.ondragover=e=>{e.preventDefault();stage.classList.add('drag-over');};stage.ondragleave=()=>stage.classList.remove('drag-over');stage.ondrop=async e=>{e.preventDefault();stage.classList.remove('drag-over');const files=Array.from(e.dataTransfer.files),cubes=files.filter(f=>/\.cube$/i.test(f.name));if(cubes.length)await importFiles(cubes);const photo=files.find(f=>f.type.startsWith('image/'));if(photo)await loadPhoto(photo);};
 }
@@ -368,14 +434,22 @@ function installEvents(){
 async function start(){
   installEvents();
   try{
-    setStatus('加载 beta81 Web');await loadLibraries();initializeSlots();
+    setStatus('加载 beta80 Web');await loadLibraries();initializeSlots();
+    const [k1iiRuntime,k1Runtime]=await Promise.all([loadBuiltinRuntime('k1ii'),loadBuiltinRuntime('k1')]);
+    state.runtimeBases.k1ii=k1iiRuntime;state.runtimeBases.k1=k1Runtime;
     const hash=location.hash.replace(/^#/,'');if(FEATURES.some(x=>x[0]===hash))state.currentPage=hash;
     $('cameraModel').value=state.cameraModel;chartSource();setupEngineering();refresh();goPage(state.currentPage);persist();
     try{
-      state.db=await openDatabase();for(const item of await dbAll()){if(item?.type==='runtime'&&item.base){const key=item.id.replace('__runtime_','');if(key==='k1'||key==='k1ii')state.runtimeBases[key]=item.base;}else if(item?.id&&item.slot)state.users.set(item.id,item);}
+      state.db=await openDatabase();for(const item of await dbAll()){
+        if(item?.type==='sd-root'&&item.handle)state.sdRoot=item.handle;
+        else if(item?.id&&item.slot)state.users.set(item.id,item);
+      }
       hydrateUserSources();refresh();persist();
     }catch(e){console.warn('IndexedDB unavailable',e);notify('浏览器持久存储不可用，本次会话仍可使用');}
-    setStatus('就绪 · beta81 Web');
-  }catch(e){console.error(e);$('renderStatus').textContent='初始化失败';setStatus('初始化失败');notify(e.message||String(e));}
+    let ready='就绪 · beta80 Web';
+    if(state.sdRoot&&await state.sdRoot.queryPermission?.({mode:'readwrite'})==='granted')
+      ready+=' · SD '+(/dcram/i.test(state.sdRoot.name||'')?'DCRAM':(state.sdRoot.name||''));
+    setStatus(ready);
+  }catch(e){console.error(e);setStatus('初始化失败');notify(e.message||String(e));}
 }
 start();

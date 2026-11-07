@@ -5,24 +5,28 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="dark">
   <meta name="description" content="Pentax Labs Web">
-  <title>Pentax Labs · Web</title>
+  <title>Pentax Labs</title>
   <link rel="stylesheet" href="./styles.css">
   <script type="module" src="./app.js"></script>
 </head>
 <body>
   <div class="shell">
     <header class="topbar">
-      <button class="menu-button" id="navToggle" aria-label="功能菜单"><i></i><i></i><i></i></button>
-      <button class="brand-button" id="homeBtn"><span>PENTAX</span><b>LABS</b></button>
-      <div class="header-slots" id="headerSlots"></div>
+      <div class="header-left">
+        <button class="menu-button" id="navToggle" aria-label="功能菜单"><i></i><i></i><i></i></button>
+        <button class="brand-button" id="homeBtn"><span>PENTAX</span><b>LABS</b></button>
+      </div>
+      <div class="header-center">
+        <div class="header-slots" id="headerSlots"></div>
+        <div class="header-status" id="headerStatus">正在初始化</div>
+      </div>
       <div class="header-right">
-        <span class="offline-note"><span class="status-dot"></span>本地浏览器计算 · 文件不上传</span>
-        <span class="version">WEB · beta81</span>
+        <button class="studio-button prominent" id="exportScriptBtn">导出脚本</button>
       </div>
     </header>
 
     <nav class="side-nav" id="sideNav" aria-label="Pentax Labs 功能">
-      <div class="nav-title">PENTAX <b>LABS</b><span>WEB</span></div>
+      <div class="nav-title">PENTAX <b>LABS</b></div>
       <div id="navItems"></div>
     </nav>
     <div class="nav-mask" id="navMask"></div>
@@ -30,95 +34,102 @@
     <main class="page-host">
       <section class="page active" data-page="filters" id="filterPage">
         <div class="filter-layout">
-          <aside class="sidebar panel">
-            <div class="section-head">
-              <h2>自定义滤镜</h2>
-              <button class="button blue compact" id="importBtn">＋ 导入 LUT</button>
+          <aside class="preset-panel panel">
+            <div class="preset-head">
+              <h2>滤镜预设</h2>
+              <button class="studio-button neutral" id="importBtn">导入 LUT</button>
+              <button class="studio-button subtle square" id="refreshBtn" title="刷新滤镜">↻</button>
             </div>
             <div class="switcher">
               <button id="factoryTab" class="on">原厂滤镜</button>
               <button id="userTab">用户滤镜</button>
             </div>
-            <div class="family-line"><span>来源</span><strong id="familyLabel">K12</strong></div>
             <input id="filterSearch" class="search" type="search" placeholder="搜索滤镜名称…">
-            <div class="list-top"><span id="filterCategory">原厂滤镜</span><span id="filterCount">0 个</span></div>
+            <div class="list-top">
+              <span id="filterCategory">原厂风格</span>
+              <span class="family-label" id="familyLabel">K12</span>
+              <span class="grow"></span>
+              <span id="filterCount">0 个</span>
+            </div>
             <div id="filterList" class="filter-list"></div>
-            <div class="sidebar-bottom"><span class="tiny-dot"></span><span>用户 LUT 保存在当前浏览器</span></div>
           </aside>
 
-          <section class="mainpanel">
-            <div class="preview panel">
-              <div class="preview-head">
-                <div class="preview-title">图像预览 <span id="photoLabel">内置色卡</span></div>
-                <div class="preview-actions">
-                  <div class="mode-switch"><button id="lutModeBtn">LUT</button><button id="cameraModeBtn" class="on">机内</button></div>
-                  <button class="icon-btn" id="toggleCompare">对比原图</button>
-                  <button class="icon-btn" id="chartBtn">色卡</button>
-                  <button class="icon-btn blue-text" id="photoBtn">＋ 照片</button>
-                </div>
-              </div>
-              <div class="stage" id="photoStage">
-                <canvas id="previewCanvas"></canvas>
-                <div class="drop-hint" id="dropHint">拖入 .cube 或 JPG / PNG / WebP 图片</div>
-              </div>
-              <div class="preview-bottom"><span id="renderStatus">加载参数库…</span><span id="previewModel">Natural-relative Matrix + RGB U14</span></div>
+          <section class="viewer panel" id="viewerPanel">
+            <div class="stage" id="photoStage">
+              <canvas id="previewCanvas"></canvas>
+              <div class="drop-hint" id="dropHint">拖入 .cube 或照片</div>
+              <div class="preview-busy" id="previewBusy">预览正在更新…</div>
             </div>
-            <div class="under-preview">
-              <div><span class="small-label">PENTAX LABS</span><h3 id="activeFilter">加载中…</h3><p id="fitReport"></p></div>
-              <button class="button neutral" id="resetBtn">恢复当前预设</button>
+            <div class="viewer-toolbar">
+              <div class="source-switch">
+                <button id="chartBtn" class="on">色卡</button>
+                <button id="photoBtn">照片</button>
+              </div>
+              <div class="toolbar-spacer"></div>
+              <div class="mode-switch">
+                <button id="lutModeBtn">LUT</button>
+                <button id="cameraModeBtn" class="on">机内</button>
+              </div>
+              <button class="studio-button subtle" id="toggleCompare">全显示</button>
             </div>
           </section>
 
           <aside class="adjust panel">
-            <div class="section-head">
-              <h2>机内参数</h2>
+            <div class="right-tabs">
+              <button class="on" data-inspector="basic">色彩矩阵</button>
+              <button data-inspector="curve">通道曲线</button>
+            </div>
+
+            <div class="inspector-body">
+              <div class="inspector-pane active" data-inspector-pane="basic">
+                <div class="subhead-line">
+                  <h3>基本参数</h3>
+                  <button class="studio-button neutral compact" id="resetBasicBtn">重置</button>
+                </div>
+                <p class="hint">亮度与对比度使用曲线；饱和度与色相控制色彩矩阵</p>
+                <div class="controls">
+                  <label class="control"><span>亮度 / EV <output id="brightnessVal">+0.00 EV</output></span><input id="brightness" type="range" min="-2" max="2" step=".1" value="0"></label>
+                  <label class="control"><span>对比度 <output id="contrastVal">0</output></span><input id="contrast" type="range" min="-100" max="100" step="5" value="0"></label>
+                  <label class="control"><span>饱和度 <output id="saturationVal">1.00 ×</output></span><input id="saturation" type="range" min="0" max="2" step=".05" value="1"></label>
+                  <label class="control"><span>色相偏移 <output id="hueVal">0°</output></span><input id="hue" type="range" min="-180" max="180" step="5" value="0"></label>
+                </div>
+                <div class="divider"></div>
+                <div class="subhead-line">
+                  <h3>3 × 3 色彩矩阵</h3>
+                  <button class="studio-button neutral compact" id="resetMatrixBtn">重置</button>
+                </div>
+                <p class="hint">相对自然（单位矩阵）· 导出时还原机内原生 Q8</p>
+                <div class="matrix-box"><div class="matrix-grid" id="matrixGrid"></div></div>
+              </div>
+
+              <div class="inspector-pane" data-inspector-pane="curve">
+                <div class="curve-head">
+                  <span>自然基准</span>
+                  <div>
+                    <button class="studio-button neutral compact" id="linearCurveBtn">线性</button>
+                    <button class="studio-button neutral compact" id="addCurvePointBtn">加点</button>
+                    <button class="studio-button neutral compact" id="resetCurveBtn">恢复</button>
+                  </div>
+                </div>
+                <div class="channel-tabs" id="channelTabs">
+                  <button class="on" data-channel="0">亮度</button>
+                  <button data-channel="1">红 R</button>
+                  <button data-channel="2">绿 G</button>
+                  <button data-channel="3">蓝 B</button>
+                </div>
+                <div class="curve-box"><canvas id="curveCanvas" class="curve-canvas" width="640" height="640"></canvas></div>
+                <p class="hint">拖动曲线调节 · 双击加点 · 右键移除点</p>
+              </div>
+            </div>
+
+            <div class="camera-footer">
+              <span>相机型号</span>
               <select id="cameraModel" class="compact-select">
                 <option value="k1ii">PENTAX K-1 II</option>
                 <option value="k1">PENTAX K-1</option>
               </select>
             </div>
-            <div class="inspector-tabs"><button class="on" data-inspector="basic">基本参数</button><button data-inspector="curve">通道曲线</button></div>
-
-            <div class="inspector-pane active" data-inspector-pane="basic">
-              <div class="controls two-col">
-                <label class="control"><span>亮度 <output id="brightnessVal">+0.00 EV</output></span><input id="brightness" type="range" min="-2" max="2" step=".05" value="0"></label>
-                <label class="control"><span>对比度 <output id="contrastVal">0</output></span><input id="contrast" type="range" min="-100" max="100" step="1" value="0"></label>
-                <label class="control"><span>饱和度 <output id="saturationVal">1.00</output></span><input id="saturation" type="range" min="0" max="2" step=".01" value="1"></label>
-                <label class="control"><span>色相 <output id="hueVal">0°</output></span><input id="hue" type="range" min="-180" max="180" step="1" value="0"></label>
-              </div>
-              <div class="divider"></div>
-              <div class="subhead-line"><h3>3×3 Matrix · Natural Relative</h3><button class="text-button" id="resetMatrixBtn">恢复矩阵</button></div>
-              <div class="matrix-grid" id="matrixGrid"></div>
-              <p class="curve-note">与桌面版一致：显示值相对 Natural；9 格均可编辑，行和始终保持 256。</p>
-            </div>
-
-            <div class="inspector-pane" data-inspector-pane="curve">
-              <div class="subhead-line"><h3>相对曲线</h3><div><button class="text-button" id="linearCurveBtn">线性</button><button class="text-button" id="resetCurveBtn">恢复</button></div></div>
-              <div class="channel-tabs" id="channelTabs">
-                <button class="on" data-channel="0">亮度</button><button data-channel="1">红 R</button><button data-channel="2">绿 G</button><button data-channel="3">蓝 B</button>
-              </div>
-              <canvas id="curveCanvas" class="curve-canvas" width="640" height="640"></canvas>
-              <p class="curve-note">显示的是相对 Natural / RGB 空间的编辑曲线，不是机身 U14 绝对点位。拖动曲线修改当前通道。</p>
-            </div>
-
-            <div class="export-panel">
-              <div class="subhead-line"><h3>机内脚本</h3><span id="runtimeStatus">未载入底座</span></div>
-              <p class="export-help">首次选择桌面 Pentax Labs 已导出的同机型 <b>script 文件夹</b>，网页自动识别 startup.ttl 与 T/P.BIN、T/R.BIN，并保存在当前浏览器。之后直接导出当前三槽的机内脚本 ZIP。</p>
-              <div class="export-actions">
-                <button class="button neutral" id="runtimeBtn">选择 script 底座</button>
-                <button class="button blue" id="exportScriptBtn">导出机内脚本</button>
-              </div>
-            </div>
           </aside>
-        </div>
-      </section>
-
-      <section class="page tool-page" data-page="modules">
-        <div class="tool-wrap">
-          <div class="tool-heading"><h1>脚本模块 <small>Script Modules</small></h1><p>统一启动入口 · 勾选功能 · 检查兼容性 · 构建机内脚本</p></div>
-          <div class="tool-card row-card"><label>目标机型</label><select id="moduleCamera"><option value="k1ii">PENTAX K-1 II</option><option value="k1">PENTAX K-1</option></select></div>
-          <div class="tool-card"><h2>选择模块</h2><label class="check-row"><input type="checkbox" checked disabled> M1 自定义滤镜（正式）</label><label class="check-row disabled"><input type="checkbox" disabled> M2 自定义提示音（桌面版当前仍在研究）</label><label class="check-row disabled"><input type="checkbox" disabled> M3 机内截图（桌面版当前仍在研究）</label></div>
-          <div class="tool-card action-card"><div><h2>M1 使用当前三个自定义槽</h2><p>与自定义滤镜页共用 Matrix / RGB 曲线和机身底座。</p></div><button class="button blue" id="moduleExportBtn">构建 M1 机内脚本</button></div>
         </div>
       </section>
 
@@ -128,14 +139,14 @@
           <div class="cp-grid">
             <div class="tool-card cp-preview"><canvas id="cpCanvas"></canvas><div id="cpEmpty">选择照片开始</div></div>
             <div class="tool-card cp-controls">
-              <button class="button blue block" id="cpPhotoBtn">选择照片</button>
+              <button class="studio-button prominent block" id="cpPhotoBtn">选择照片</button>
               <label class="control"><span>曝光 <output id="cpExposureVal">0.00</output></span><input id="cpExposure" type="range" min="-2" max="2" step=".05" value="0"></label>
               <label class="control"><span>对比度 <output id="cpContrastVal">0</output></span><input id="cpContrast" type="range" min="-100" max="100" step="1" value="0"></label>
               <label class="control"><span>饱和度 <output id="cpSatVal">0</output></span><input id="cpSat" type="range" min="-100" max="100" step="1" value="0"></label>
               <label class="control"><span>亮部 <output id="cpHighlightsVal">0</output></span><input id="cpHighlights" type="range" min="-100" max="100" step="1" value="0"></label>
               <label class="control"><span>暗部 <output id="cpShadowsVal">0</output></span><input id="cpShadows" type="range" min="-100" max="100" step="1" value="0"></label>
-              <button class="button neutral block" id="cpNeutralBtn">一键去色罩 / 中和</button>
-              <button class="button blue block" id="cpExportBtn">导出处理后 PNG</button>
+              <button class="studio-button neutral block" id="cpNeutralBtn">一键去色罩 / 中和</button>
+              <button class="studio-button prominent block" id="cpExportBtn">导出处理后 PNG</button>
             </div>
           </div>
         </div>
@@ -143,45 +154,39 @@
 
       <section class="page tool-page" data-page="engineering">
         <div class="tool-wrap">
-          <div class="tool-heading"><h1>工程模式 <small>Service & Factory</small></h1><p>使用桌面版同一份已归档工程入口数据，在浏览器本地打包。</p></div>
-          <div class="tool-card row-card"><label>相机型号</label><select id="engineeringModel"></select><label>工程入口</label><select id="engineeringVariant"></select><button class="button blue" id="engineeringExportBtn">导出工程文件</button></div>
+          <div class="tool-heading"><h1>工程模式 <small>Service & Factory</small></h1><p>选择型号与入口类型，导出当前项目已核验的工程文件。</p></div>
+          <div class="tool-card row-card"><label>相机型号</label><select id="engineeringModel"></select><label>工程入口</label><select id="engineeringVariant"></select><button class="studio-button prominent" id="engineeringExportBtn">导出工程文件</button></div>
           <div class="tool-card"><h2 id="engineeringTitle">—</h2><pre class="tutorial" id="engineeringTutorial">加载工程数据…</pre></div>
         </div>
       </section>
 
       <section class="page tool-page" data-page="seasons">
         <div class="tool-wrap">
-          <div class="tool-heading"><h1>四季滤镜 <small>Four Seasons</small></h1><p>一次生成工程触发文件 + DEVELOP.MOD + script/startup.ttl，两次开机流程。</p></div>
-          <div class="tool-card row-card"><label>相机型号</label><select id="seasonModel"></select><button class="button blue" id="seasonExportBtn">导出四季启用包</button></div>
-          <div class="steps"><div class="tool-card"><b>01</b><h2>第一次开机</h2><p>通过对应工程入口尝试启用 SCRIPT EN MODE，然后正常关机。</p></div><div class="tool-card"><b>02</b><h2>第二次开机</h2><p>保持同一张卡正常开机，执行四季 startup.ttl，再进入机内菜单检查。</p></div></div>
+          <div class="tool-heading"><h1>四季滤镜 <small>Four Seasons</small></h1><p>原生四季滤镜 · 两次开机启用。</p></div>
+          <div class="tool-card row-card"><label>相机型号</label><select id="seasonModel"></select><button class="studio-button prominent" id="seasonExportBtn">导出四季启用包</button></div>
+          <div class="steps"><div class="tool-card"><b>01</b><h2>第一次开机</h2><p>启用 Script Mode 后正常关机。</p></div><div class="tool-card"><b>02</b><h2>第二次开机</h2><p>保持同一张卡正常开机，执行四季脚本。</p></div></div>
           <div class="tool-card"><h2>当前机型信息</h2><p id="seasonInfo">加载中…</p></div>
-        </div>
-      </section>
-
-      <section class="page tool-page" data-page="shutter">
-        <div class="tool-wrap">
-          <div class="tool-heading"><h1>快门查询 <small>Shutter Counter</small></h1><p>浏览器本地读取照片元数据；文件不会上传。</p></div>
-          <div class="tool-card action-card"><div><h2>选择原厂照片</h2><p>优先识别明确的 ShutterCount / MechanicalShutterCount 文本字段；普通 EXIF 同时显示机型。</p></div><button class="button blue" id="shutterBtn">选择照片</button></div>
-          <div class="tool-card shutter-results" id="shutterResults"><div class="empty">尚未选择照片</div></div>
         </div>
       </section>
 
       <section class="page tool-page" data-page="istd">
         <div class="tool-wrap">
-          <div class="tool-heading"><h1>*ist D 工具箱 <small>Toolbox</small></h1><p>网页端保留无需固件私有载荷的可独立生成功能。</p></div>
-          <div class="tool-card"><div class="action-card"><div><h2>焦点补偿 / AF Fine Adjustment</h2><p>与桌面版相同范围 −64 ～ +64，默认 +32。</p></div><output class="big-value" id="afValue">+32</output></div><input id="afOffset" class="wide-range" type="range" min="-64" max="64" step="1" value="32"><button class="button blue" id="afExportBtn">导出调焦文件</button></div>
+          <div class="tool-heading"><h1>*ist D 工具箱 <small>Toolbox</small></h1><p>中文固件 · 焦点补偿。</p></div>
+          <div class="tool-card"><h2>中文固件 / Firmware 1.12</h2><p>文件固定命名 FWDC112B.BIN。</p><button class="studio-button prominent" id="firmwareExportBtn">导出中文固件</button></div>
+          <div class="tool-card"><div class="action-card"><div><h2>焦点补偿 / AF Fine Adjustment</h2><p>范围 −64 ～ +64，默认 +32。</p></div><output class="big-value" id="afValue">+32</output></div><input id="afOffset" class="wide-range" type="range" min="-64" max="64" step="1" value="32"><button class="studio-button prominent" id="afExportBtn">导出调焦文件</button></div>
         </div>
       </section>
     </main>
 
-    <footer class="foot"><div id="footerContext">机型 <strong id="footerCamera">PENTAX K-1 II</strong><i></i> 当前滤镜 <strong id="footerFilter">—</strong></div><div id="footerStatus">正在初始化</div></footer>
+    <footer class="foot">
+      <div id="footerContext">机型 <strong id="footerCamera">PENTAX K-1 II</strong><i></i> 当前滤镜 <strong id="footerFilter">—</strong></div>
+      <div id="footerStatus">正在初始化</div>
+    </footer>
   </div>
 
   <input type="file" id="lutFile" accept=".cube,.CUBE,text/plain" multiple hidden>
   <input type="file" id="photoFile" accept="image/jpeg,image/png,image/webp,image/avif" hidden>
-  <input type="file" id="runtimeFiles" webkitdirectory directory multiple hidden>
   <input type="file" id="cpPhotoFile" accept="image/jpeg,image/png,image/webp" hidden>
-  <input type="file" id="shutterFiles" multiple hidden>
   <div class="toast" id="toast" role="status"></div>
 </body>
 </html>

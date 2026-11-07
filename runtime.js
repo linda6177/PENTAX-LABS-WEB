@@ -23,6 +23,19 @@ const NATURAL_PATCHES=[
 const enc=new TextEncoder();
 const dec=new TextDecoder('ascii');
 
+// Offline verification helper. The production Web UI never asks the user for
+// these files; it loads the validated beta80 templates with loadBuiltinRuntime.
+export async function readRuntimeFiles(fileList,cameraModel) {
+  const files={};
+  for(const file of fileList) files[file.name.toLowerCase()]={data:new Uint8Array(await file.arrayBuffer())};
+  const p=files['p.bin'],r=files['r.bin'],ttl=files['startup.ttl'];
+  if(!p||!r||!ttl) throw Error('runtime verification set is incomplete');
+  const expected=cameraModel==='k1'?'K1N29':'K12EN81';
+  if(p.data.length!==4096||r.data.length<0x16B48||!dec.decode(ttl.data).includes(expected))
+    throw Error('runtime verification set does not match '+expected);
+  return {cameraModel,p:p.data,r:r.data,ttl:ttl.data,loadedAt:Date.now()};
+}
+
 function signed(value,bits) {
   const mask=2**bits, half=2**(bits-1);
   let v=((Math.trunc(value)%mask)+mask)%mask;
@@ -108,25 +121,36 @@ function iconPixels() {
   return out;
 }
 
-export async function readRuntimeFiles(fileList,cameraModel) {
-  const files={};
-  for(const file of fileList) files[file.name.toLowerCase()]={name:file.name,data:new Uint8Array(await file.arrayBuffer())};
-  const p=files['p.bin'],r=files['r.bin'],ttl=files['startup.ttl'];
-  if(!p||!r||!ttl) throw Error('请选择同一机型的一组 P.BIN、R.BIN、startup.ttl');
-  if(p.data.length!==4096) throw Error('P.BIN 长度不是 4096 字节');
-  if(r.data.length<0x16B48) throw Error('R.BIN 长度异常');
-  const text=dec.decode(ttl.data);
-  const expected=cameraModel==='k1'?'K1N29':'K12EN81';
-  if(!text.includes(expected)) throw Error('底座与当前机型不匹配：应包含 '+expected);
-  return {cameraModel,p:p.data,r:r.data,ttl:ttl.data,loadedAt:Date.now()};
+async function fetchRuntimeBytes(candidates,label) {
+  let last=null;
+  for(const url of candidates){
+    try{const response=await fetch(url,{cache:'no-cache'});if(!response.ok)throw Error('HTTP '+response.status);return new Uint8Array(await response.arrayBuffer());}
+    catch(error){last=error;}
+  }
+  throw Error(label+' 加载失败：'+(last?.message||'unknown'));
 }
 
-export function compileCameraScript(slots,cameraModel,base) {
-  if(!base||base.cameraModel!==cameraModel) throw Error('请先载入当前机型的 Pentax Labs 机内底座');
+export async function loadBuiltinRuntime(cameraModel) {
+  const key=cameraModel==='k1'?'k1':'k1ii';
+  const root='./assets/runtime/'+key+'/';
+  const source=key==='k1'?'../app/core/assets/k1_native_r29/':'../app/core/assets/';
+  const [p,r,ttl]=await Promise.all([
+    fetchRuntimeBytes([root+'P.BIN',source+'P.BIN'],'P.BIN'),
+    fetchRuntimeBytes([root+'R.BIN',source+'R.BIN'],'R.BIN'),
+    fetchRuntimeBytes([root+'startup.ttl',source+'startup.ttl'],'startup.ttl'),
+  ]);
+  if(p.length!==4096) throw Error('内置 P.BIN 长度异常');
+  if(r.length<0x16B48) throw Error('内置 R.BIN 长度异常');
+  const expected=key==='k1'?'K1N29':'K12EN81';
+  if(!dec.decode(ttl).includes(expected)) throw Error('内置脚本与当前机型不匹配：'+expected);
+  return {cameraModel:key,p,r,ttl,loadedAt:Date.now(),builtin:true};
+}
+
+export function compileCameraScriptFiles(slots,cameraModel,base) {
+  if(!base||base.cameraModel!==cameraModel) throw Error('当前机型的内置运行时尚未加载');
   const active=slots.filter(s=>s.enabled);
   if(active.length<1||active.length>3) throw Error('请启用 1～3 个自定义滤镜槽');
   const runtime=new Uint8Array(base.r); const rv=new DataView(runtime.buffer);
-  const fits=[];
   for(let i=0;i<active.length;i++) {
     const slot=active[i];
     const requested=hardwareForSlot(slot);
@@ -140,7 +164,6 @@ export function compileCameraScript(slots,cameraModel,base) {
     }
     runtime.set(titlePixels((i+1)+' '+slot.name),META.titles[i]);
     runtime.set(iconPixels(),META.icons[i]);
-    fits.push({name:slot.name,hardware_q8:compiled.realized,source_q13:compiled.source,matrix_exact:compiled.exact});
   }
   put32(rv,MASK,(1<<active.length)-1);
   const focusAt=META.focusOriginal+4;
@@ -162,19 +185,18 @@ export function compileCameraScript(slots,cameraModel,base) {
   const reg=cameraModel==='k1'
     ?'C:\\script\\T\\P.BIN               ,   1080448556\r\n'
     :'C:\\script\\T\\P.BIN               ,   1080573344\r\n';
-  const manifest=JSON.stringify({
-    schema:1,generator:'Pentax Labs Web',camera_model:cameraModel,filter_count:active.length,
-    filters:fits,runtime_crc32:crc32(runtime),generated_at:new Date().toISOString()
-  },null,2);
-  return zipStore({
+  return {
     'script/startup.ttl':base.ttl,
     'script/T/P.BIN':stage,
     'script/T/R.BIN':runtime,
     'script/T/REG.TXT':reg,
     [`script/${status}/STATUS.TXT`]:`NOT_RUN Pentax Labs Web; startup.ttl will overwrite this file.\r\n`,
     [`script/${status}/README.TXT`]:'Runtime output directory. Keep this directory on the SD card.\r\n',
-    'PentaxLabs_Web_Manifest.json':manifest,
-  });
+  };
+}
+
+export function compileCameraScript(slots,cameraModel,base) {
+  return zipStore(compileCameraScriptFiles(slots,cameraModel,base));
 }
 
 export function buildFocusZip(offset) {
