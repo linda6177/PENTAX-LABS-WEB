@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Pentax Labs Web — browser-side PENTAX custom image filter editor and preview.">
+  <title>Pentax Labs · Web</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="identity">
+        <span class="brand">PENTAX <b>Labs</b></span>
+        <span class="separator"></span>
+        <span class="edition">WEB</span>
+      </div>
+      <div class="header-right">
+        <span class="offline-note"><span class="status-dot"></span>本地浏览器计算 · 照片不上传</span>
+        <span class="version">beta80 WEB</span>
+      </div>
+    </header>
+
+    <main class="workarea">
+      <aside class="sidebar panel">
+        <div class="section-head">
+          <h2>自定义滤镜</h2>
+          <button class="button blue compact" id="importBtn">＋ 导入 LUT</button>
+        </div>
+        <div class="switcher">
+          <button id="factoryTab" class="on">原厂滤镜</button>
+          <button id="userTab">用户滤镜</button>
+        </div>
+        <div class="family-line">
+          <span>来源</span><strong id="familyLabel">K12</strong>
+        </div>
+        <input id="filterSearch" class="search" type="search" placeholder="搜索滤镜名称…" aria-label="搜索滤镜名称">
+        <div class="list-top"><span id="filterCategory">原厂滤镜</span><span id="filterCount">0 个</span></div>
+        <div id="filterList" class="filter-list" aria-label="滤镜列表"></div>
+        <div class="sidebar-bottom"><span class="tiny-dot"></span><span>用户 LUT 保存在当前浏览器</span></div>
+      </aside>
+
+      <section class="mainpanel">
+        <div class="slot-row" id="slotRow" aria-label="三个自定义滤镜槽"></div>
+
+        <div class="preview panel">
+          <div class="preview-head">
+            <div class="preview-title">图像预览 <span id="photoLabel">内置色卡</span></div>
+            <div class="preview-actions">
+              <div class="mode-switch" aria-label="预览模式">
+                <button id="lutModeBtn">LUT</button>
+                <button id="cameraModeBtn" class="on">机内</button>
+              </div>
+              <button class="icon-btn" id="toggleCompare" title="按住查看原图">对比原图</button>
+              <button class="icon-btn" id="chartBtn">色卡</button>
+              <button class="icon-btn blue-text" id="photoBtn">＋ 照片</button>
+            </div>
+          </div>
+          <div class="stage" id="photoStage">
+            <canvas id="previewCanvas" aria-label="滤镜预览"></canvas>
+            <div class="drop-hint" id="dropHint">拖入 .cube 或 JPG / PNG / WebP 图片</div>
+          </div>
+          <div class="preview-bottom">
+            <span id="renderStatus">加载参数库…</span>
+            <span id="previewModel">Natural-relative Q8 + RGB U14 Web proxy</span>
+          </div>
+        </div>
+
+        <div class="under-preview">
+          <div>
+            <span class="small-label">PENTAX LABS WEB</span>
+            <h3 id="activeFilter">加载中…</h3>
+            <p id="fitReport">网页端保留 Matrix / RGB Gamma 参数；相机原厂 P/R 运行时仅由桌面版打包。</p>
+          </div>
+          <button class="button neutral" id="resetBtn">恢复当前预设</button>
+        </div>
+      </section>
+
+      <aside class="adjust panel">
+        <div class="section-head">
+          <h2>机内参数</h2>
+          <select id="cameraModel" class="compact-select" aria-label="相机型号">
+            <option value="k1ii">PENTAX K-1 II</option>
+            <option value="k1">PENTAX K-1</option>
+          </select>
+        </div>
+
+        <div class="controls">
+          <div class="control">
+            <div class="control-title"><label for="brightness">亮度</label><output id="brightnessVal">+0.00 EV</output></div>
+            <input id="brightness" type="range" min="-2" max="2" step=".05" value="0">
+          </div>
+          <div class="control">
+            <div class="control-title"><label for="contrast">对比度</label><output id="contrastVal">0</output></div>
+            <input id="contrast" type="range" min="-60" max="60" step="1" value="0">
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="subhead-line"><h3 class="subheading">3×3 Matrix · Q8</h3><span>每行和 = 256</span></div>
+        <div class="matrix-grid" id="matrixGrid"></div>
+
+        <div class="divider"></div>
+        <div class="subhead-line"><h3 class="subheading">RGB Gamma · U14</h3><button class="text-button" id="resetCurveBtn">重置通道</button></div>
+        <div class="channel-tabs" id="channelTabs">
+          <button class="on" data-channel="0">R</button>
+          <button data-channel="1">G</button>
+          <button data-channel="2">B</button>
+        </div>
+        <canvas id="curveCanvas" class="curve-canvas" width="640" height="220"></canvas>
+        <div class="curve-note">拖动曲线直接修改当前通道 256 节点；输出保持单调。</div>
+
+        <div class="divider"></div>
+        <h3 class="subheading">导出</h3>
+        <div class="export-row">
+          <select id="exportGrid" class="select">
+            <option value="17">17³</option>
+            <option value="33" selected>33³</option>
+            <option value="65">65³</option>
+          </select>
+          <button class="button blue grow" id="exportCubeBtn">导出 CUBE</button>
+        </div>
+        <button class="button neutral block" id="exportProjectBtn">导出 Pentax Labs 项目</button>
+        <button class="button neutral block secondary" id="exportParamsBtn">导出当前参数 JSON</button>
+
+        <div class="note">
+          <strong>网页版边界</strong>
+          <p>照片、LUT、拟合和参数都在浏览器本地处理。公开网页不携带 P.BIN / R.BIN / 固件资源；导出的项目可在 Windows Pentax Labs 中继续生成相机脚本。</p>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="foot">
+      <div>机型 <strong id="footerCamera">PENTAX K-1 II</strong><i></i> 当前滤镜 <strong id="footerFilter">—</strong></div>
+      <div id="footerStatus">正在初始化</div>
+    </footer>
+  </div>
+
+  <input type="file" id="lutFile" accept=".cube,.CUBE,text/plain" multiple hidden>
+  <input type="file" id="photoFile" accept="image/jpeg,image/png,image/webp,image/avif" hidden>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
