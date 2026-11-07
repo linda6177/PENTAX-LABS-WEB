@@ -29,14 +29,14 @@ const state={
   runtimeBases:{k1:null,k1ii:null},sdRoot:null,
   curveAnchors:Array.from({length:3},()=>Array.from({length:4},()=>[])),curveAddMode:false,
   curveDisplays:Array.from({length:3},()=>Array.from({length:4},()=>null)),
-  cpOriginal:null,cpMode:'random',cpBaseIndex:5,cpControls:[0,0,4,-3,-2],cpCurves:'210',cpChannel:0,
+  cpOriginal:null,cpMode:'random',cpBaseIndex:5,cpControls:[0,0,4,-3,-2],cpCurves:'210',
   language:'system',accent:'#3178DF',settingsPage:'language',cpInspector:'basic',
 };
 const original=document.createElement('canvas');
-const originalContext=original.getContext('2d',{willReadFrequently:true});
-const preview=$('previewCanvas'), previewContext=preview.getContext('2d');
-const thumbOriginal=document.createElement('canvas'),thumbOriginalContext=thumbOriginal.getContext('2d',{willReadFrequently:true});
-const cpOriginal=document.createElement('canvas'), cpOriginalCtx=cpOriginal.getContext('2d',{willReadFrequently:true});
+const originalContext=original.getContext('2d',{colorSpace:'srgb',willReadFrequently:true});
+const preview=$('previewCanvas'), previewContext=preview.getContext('2d',{colorSpace:'srgb',willReadFrequently:true});
+const thumbOriginal=document.createElement('canvas'),thumbOriginalContext=thumbOriginal.getContext('2d',{colorSpace:'srgb',willReadFrequently:true});
+const cpOriginal=document.createElement('canvas'), cpOriginalCtx=cpOriginal.getContext('2d',{colorSpace:'srgb',willReadFrequently:true});
 let renderTimer=0,toastTimer=0,curvePointer=null;
 let thumbRevision=0;
 const thumbCache=new Map();
@@ -49,7 +49,7 @@ const GUIDE_SECTIONS=[
   ['色彩矩阵与 Gamma 曲线','以 Natural 为相对基准。曲线显示采用和桌面端相同的“平滑意图”模型：原厂 256 个物理节点不会直接变成 256 个可见控制点，默认只显示黑白端点。直接拖动曲线主体可做大范围平滑形变；拖端点可改变黑白端位置；双击或“加点”增加中间控制点，右键移除点不会恢复原始效果。显示平滑只负责表达调整意图，后台仍把相对变化写回原有 256 点机内 Gamma；“线性”回到 Natural 对角线，“恢复”返回当前预设基线。','Color Matrix & Gamma Curves','Natural is the relative reference. The curve display uses the same smooth-intent model as desktop: the 256 physical factory nodes are not exposed as 256 visible handles, and only black/white endpoints appear by default. Drag the curve body for broad smooth shaping, move endpoints to change black/white positions, double-click or Add Point for intermediate controls, and right-click a point to remove the handle without reverting the effect. Display smoothing represents editing intent while the relative change is still written back to the original 256 camera Gamma nodes. Linear returns to the Natural diagonal; Restore returns to the active preset baseline.'],
   ['照片预览与对比','网页启动默认显示色卡。单击“照片”选择本地 JPG/PNG/WebP/AVIF，照片只在浏览器本地解码，不会上传；左侧滤镜缩略图与主预览使用同一张照片。LUT/机内切换用于比较原始 CUBE 与拟合后的机内参数；对比按钮依次切换全显示、左右、上下。照片区域仍支持把 .cube 或照片直接拖入，但不再显示常驻遮挡提示。','Photo Preview & Compare','The web app starts with the color chart. Photo opens a local JPG/PNG/WebP/AVIF and never uploads it; left-side filter thumbnails use the same source as the main preview. LUT/Camera compares the original CUBE with the fitted camera parameters, while Compare cycles Full, Left/Right and Top/Bottom. The photo area still accepts dragged .cube files or photos, but the permanent overlay hint has been removed.'],
   ['相机脚本导出与注意事项','自定义滤镜页底部选择真实相机型号。K-1 II 使用独立 P286 运行时，K-1 使用独立 R29 运行时；两者都导出 Natural 相对矩阵映射后的 Q8/Q13 与三路 U14。*ist D 使用 signed10 Q8 3×3 Matrix 加一条共享 4096 点 U8 Gamma，所以复杂彩色 LUT 的理论误差可能明显更高。每次点击导出都会先让你选择 SD 卡根目录或测试目录，再直接写入。','Camera Script Export & Notes','Choose the real camera model at the bottom of Custom Filters. K-1 II uses its own P286 runtime and K-1 uses the separate R29 runtime; both export Natural-relative matrix mapping as Q8/Q13 plus three U14 channels. *ist D uses a signed10 Q8 3×3 Matrix plus one shared 4096-node U8 Gamma, so complex color LUTs can have higher model error. Every export first asks for the SD-card root or a test folder and then writes directly.'],
-  ['正负逆冲','正负逆冲右侧和桌面端一样分成“色彩调节”和“通道曲线”两页。色彩调节页选择 Random/Extended 模式、原厂矩阵银行，并调整饱和度、色相、影调、对比度和锐度；3×3 数值编辑会吸附到最近的可编码原厂矩阵。通道曲线页查看 R/G/B 三路完整 ROM 曲线并选择 0、1、2 曲线编号。Random 模式要求三个编号互不重复，预览与 10B 导出按同一原厂配方模型处理。','Cross Processing','Cross Processing mirrors desktop with separate Color Adjustments and Tone Curves pages. Color selects Random/Extended mode, the factory matrix bank and the five native controls; 3×3 edits snap to the nearest encodable factory matrix. Tone Curves shows the complete R/G/B ROM curves and selects indices 0, 1 and 2. Random mode requires three different indices. Preview and 10-byte export use the same factory recipe model.'],
+  ['正负逆冲','正负逆冲右侧和桌面端一样分成“色彩调节”和“通道曲线”两页。色彩调节页选择 Random/Extended 模式和有限的原厂矩阵银行；矩阵数值只读，不支持自由编辑，并可调整饱和度、色相、影调、对比度和锐度。通道曲线页同时显示 R/G/B 三路完整 ROM 曲线，下方分别选择各通道的 0、1、2 曲线编号。Random 模式要求三个编号互不重复，预览与 10B 导出按同一原厂配方模型处理。','Cross Processing','Cross Processing mirrors desktop with separate Color Adjustments and Tone Curves pages. Color selects Random/Extended mode and one of the finite OEM matrix banks; matrix values are read-only, while the five native controls remain adjustable. Tone Curves displays all three R/G/B ROM curves simultaneously, with independent 0/1/2 selectors below each channel. Random mode requires three different indices. Preview and 10-byte export use the same factory recipe model.'],
   ['工程模式与四季滤镜','工程模式只导出项目内已有证据的入口文件。四季滤镜采用“一次写卡、两次开机”：01 第一次按机型对应的工程入口条件开机，尝试启用 SCRIPT EN MODE，然后正常关机；02 保持同一张卡、关好卡门后正常开机，执行 script/startup.ttl，再到机内菜单检查四季滤镜。导出时直接选择 SD 卡根目录或测试目录，不需要中途替换文件。','Service Mode & Four Seasons','Service Mode exports only entry files supported by project evidence. Four Seasons uses one card write and two boots: 01 boot using the model-specific engineering entry procedure, attempt to enable SCRIPT EN MODE, then power off normally; 02 keep the same card inserted, close the card door and boot normally to run script/startup.ttl, then check the seasonal filters in the camera menu. Export directly to the SD-card root or a test folder; no file swapping is needed between boots.'],
   ['*ist D 工具箱','*ist D 工具箱包含 Firmware 1.12 中文固件和 AF Fine Adjustment。中文固件固定命名 FWDC112B.BIN；调焦范围 −64～+64，默认 +32，生成 KB321.EEP 与 MODSET.TXT。两项都使用“选择目录后直接写入”的流程。*ist D 自定义滤镜的 Matrix/Gamma 能力与 K-1/K-1 II 不同，不能用后三者的三路 Gamma 精度去要求它。','*ist D Toolbox','The *ist D toolbox contains the Chinese Firmware 1.12 file and AF Fine Adjustment. Firmware is always named FWDC112B.BIN; AF adjustment ranges from −64 to +64 with +32 as the default and generates KB321.EEP plus MODSET.TXT. Both use direct folder export. *ist D custom-filter Matrix/Gamma capability differs from K-1/K-1 II and should not be judged against their three independent Gamma channels.'],
   ['导出目录与浏览器权限','自定义滤镜、工程模式、四季滤镜、*ist D 固件和调焦文件都以“选择目录后直接写入”为主流程。通常直接选择相机 SD 卡根目录，也可以先选任意测试目录。浏览器安全模型不允许网页静默枚举 Windows 盘符或卷标，所以第一次及每次主动导出都会打开系统目录选择器；上次目录只作为起始位置。浏览器不支持 File System Access API 时才回退 ZIP/下载。不要把 script 子目录本身当作 SD 根目录。','Export Folders & Browser Permissions','Custom filters, Service Mode, Four Seasons, *ist D firmware and AF files all use direct folder export as the primary workflow. Normally choose the camera SD-card root, or use a test folder first. Browser security prevents a web page from silently enumerating Windows drive letters or volume labels, so every explicit export opens the system folder picker; the previous folder is only used as the starting location. ZIP/download is only the fallback when the File System Access API is unavailable. Do not select the script subfolder itself as the SD-card root.'],
@@ -154,13 +154,14 @@ async function fetchBytes(candidates,label){
   throw Error('无法读取'+label+'：'+(last?.message||'unknown'));
 }
 async function loadLibraries(){
-  const [factory,profiles,engineering,displayKernel,istdNatural,cpNative]=await Promise.all([
+  const [factory,profiles,engineering,displayKernel,istdNatural,cpNative,releaseInfo]=await Promise.all([
     fetchJson(['./assets/factory_lut_families.json','../app/core/assets/factory_lut_families.json'],'原厂滤镜库'),
     fetchJson(['./assets/relative_curve_profiles.json'],'相对曲线基准'),
     fetchJson(['./assets/engineering_payload.json','../app/lab_assets/engineering_payload.json'],'工程模式数据'),
     fetchJson(['./assets/display_kernel.json'],'桌面预览内核'),
     fetchBytes(['./assets/istd_natural4096.bin','../app/core/assets/istd_natural4096.bin'],'*ist D Natural Gamma'),
     fetchJson(['./assets/cp_native.json'],'正负逆冲 ROM 数据'),
+    fetchJson(['./version.json'],'版本信息').catch(()=>({})),
   ]);
   const family=factory.families?.k12;if(!family?.filters)throw Error('K12 原厂滤镜库格式不正确');
   state.family=family;state.factoryRows=family.filters;state.factorySlots.clear();
@@ -169,6 +170,8 @@ async function loadLibraries(){
   configureDisplayKernel(displayKernel,istdNatural);
   state.natural=slotFromFactory(naturalRow,state.cameraModel);state.curveProfiles=profiles;state.engineeringPayload=engineering;state.cpNative=cpNative;
   $('familyLabel').textContent=family.label||'K12';
+  const download=$('desktopDownloadBtn');
+  if(download){download.textContent=tr('下载桌面版','Download Desktop')+' '+String(releaseInfo.desktop_release||'Latest');if(releaseInfo.desktop_download_url)download.href=releaseInfo.desktop_download_url;}
 }
 function initializeSlots(){
   const restored=restoreLocal();
@@ -403,6 +406,8 @@ function refresh(){renderSlots();renderFilterList();refreshControls();queueRende
 function applyPreset(identifier,factory){
   let selected=factory?state.factorySlots.get(identifier):state.users.get(identifier)?.slot;
   if(!selected)return;selected=cloneSlot(selected);if(!factory){const item=state.users.get(identifier);selected=state.cameraModel==='istd'?adaptSlotToIstd(selected,state.natural):selected;selected.sourceLut=item?.sourceLut||null;selected.user_preset_id=item.id;}
+  const sourceName=factory?selected.name:(state.users.get(identifier)?.name||selected.name);
+  selected.name=String(sourceName||'CUST').trim().slice(0,6);
   selected.enabled=currentSlot().enabled;selected.camera_model=state.cameraModel;normalizeSlotShape(selected);
   state.slots[state.active]=selected;state.bases[state.active]=cloneSlot(selected);state.curveAnchors[state.active]=[[],[],[],[]];state.curveDisplays[state.active]=[null,null,null,null];if(state.previewMode==='lut'&&!selected.sourceLut)state.previewMode='camera';persist();refresh();
 }
@@ -421,8 +426,8 @@ function chartSource(){
   ctx.fillStyle='#98a2b2';ctx.font='15px sans-serif';ctx.fillText('PENTAX LABS · COLOR PREVIEW',margin,26);syncThumbnailSource();renderFilterList();refreshControls();queueRender();
 }
 async function loadPhoto(file){
-  const bitmap=await createImageBitmap(file),factor=Math.min(1,1600/Math.max(bitmap.width,bitmap.height));original.width=Math.max(1,Math.round(bitmap.width*factor));original.height=Math.max(1,Math.round(bitmap.height*factor));
-  originalContext.clearRect(0,0,original.width,original.height);originalContext.drawImage(bitmap,0,0,original.width,original.height);bitmap.close();state.sourceName=file.name;state.sourceMode='photo';syncThumbnailSource();renderFilterList();refreshControls();queueRender();
+  const bitmap=await createImageBitmap(file,{colorSpaceConversion:'default',imageOrientation:'from-image'}),factor=Math.min(1,2560/Math.max(bitmap.width,bitmap.height));original.width=Math.max(1,Math.round(bitmap.width*factor));original.height=Math.max(1,Math.round(bitmap.height*factor));
+  originalContext.imageSmoothingEnabled=true;originalContext.imageSmoothingQuality='high';originalContext.clearRect(0,0,original.width,original.height);originalContext.drawImage(bitmap,0,0,original.width,original.height);bitmap.close();state.sourceName=file.name;state.sourceMode='photo';syncThumbnailSource();renderFilterList();refreshControls();queueRender();
 }
 function queueRender(){clearTimeout(renderTimer);renderTimer=setTimeout(renderPreview,24);}
 function renderPreview(){
@@ -441,7 +446,7 @@ async function importFiles(files){
   const cubes=Array.from(files).filter(f=>/\.cube$/i.test(f.name));if(!cubes.length)return;
   for(const file of cubes){try{
     setStatus('拟合 LUT：'+file.name);await new Promise(r=>requestAnimationFrame(r));const cube=parseCube(await file.text(),file.name),fitNatural=canonicalNaturalSlot('k1ii'),fitted=fitCubeQuick(cube,fitNatural,state.cameraModel==='istd'?'k1ii':state.cameraModel),id=cube.id.replace('lut:','');
-    fitted.user_preset_id=id;fitted.sourceLut=cube;normalizeSlotShape(fitted);const item={id,name:cube.name,slot:stripSource(fitted),sourceLut:cube,importedAt:Date.now()};
+    fitted.name=String(cube.name||file.name.replace(/\.cube$/i,'')).trim().slice(0,6);fitted.user_preset_id=id;fitted.sourceLut=cube;normalizeSlotShape(fitted);const item={id,name:cube.name,slot:stripSource(fitted),sourceLut:cube,importedAt:Date.now()};
     state.users.set(id,item);await dbPut(item);const active=state.cameraModel==='istd'?adaptSlotToIstd(fitted,state.natural):fitted;active.user_preset_id=id;active.sourceLut=cube;state.slots[state.active]=cloneSlot(active);state.bases[state.active]=cloneSlot(active);state.curveAnchors[state.active]=[[],[],[],[]];state.curveDisplays[state.active]=[null,null,null,null];state.tab='user';state.previewMode='camera';persist();notify('已导入「'+cube.name+'」 · ΔE00 '+fitted.fit_report.de00_mean.toFixed(2)+' · RGB '+fitted.fit_report.rgb_mae_255.toFixed(2)+'/255');
   }catch(e){console.error(e);notify(file.name+'：'+(e.message||e));}}
   $('lutFile').value='';refresh();setStatus('就绪');
@@ -562,18 +567,13 @@ async function loadCpPhoto(file){
 function cpModeData(){return state.cpNative?.modes?.[state.cpMode]||{bases:[],limits:[]};}
 function cpBaseId(){const bases=cpModeData().bases;return bases[Math.max(0,Math.min(state.cpBaseIndex,bases.length-1))]??0;}
 function cpMatrixFor(base=cpBaseId()){return state.cpNative.matrices_q8[String(base)].map(row=>row.map(Number));}
-function cpNearestBase(target){
-  const bases=cpModeData().bases;let best=0,bestError=Infinity;
-  bases.forEach((base,index)=>{const matrix=cpMatrixFor(base);let error=0;for(let r=0;r<3;r++)for(let c=0;c<3;c++){const d=matrix[r][c]-target[r][c];error+=d*d;}if(error<bestError){bestError=error;best=index;}});return best;
-}
 function renderCpMatrix(){
   const grid=$('cpMatrixGrid');grid.replaceChildren();const matrix=cpMatrixFor();
   grid.appendChild(document.createElement('span'));
   ['r','g','b'].forEach((key,index)=>{const label=document.createElement('span');label.className='matrix-axis '+key;label.textContent=['R','G','B'][index];grid.appendChild(label);});
   for(let row=0;row<3;row++)for(let col=0;col<3;col++){
     if(col===0){const label=document.createElement('span');label.className='matrix-axis '+['r','g','b'][row];label.textContent=['R','G','B'][row];grid.appendChild(label);}
-    const input=document.createElement('input');input.type='number';input.step='1';input.min='-1024';input.max='1024';input.value=Math.round(matrix[row][col]);input.className=row===col?'matrix-cell diagonal':'matrix-cell';
-    input.onchange=()=>{const target=matrix.map(r=>r.slice());target[row][col]=Math.max(-1024,Math.min(1024,Math.round(Number(input.value)||0)));state.cpBaseIndex=cpNearestBase(target);renderCpUi();renderCp();};grid.appendChild(input);
+    const value=document.createElement('span');value.className='matrix-cell readonly'+(row===col?' diagonal':'');value.textContent=String(Math.round(matrix[row][col]));grid.appendChild(value);
   }
 }
 function chooseCpCurve(channel,selected){
@@ -585,11 +585,15 @@ function chooseCpCurve(channel,selected){
   next[channel]=value;state.cpCurves=next.join('');renderCpUi();renderCp();
 }
 function drawCpCurve(){
-  const canvas=$('cpCurveCanvas'),ctx=canvas.getContext('2d'),w=canvas.width,h=canvas.height,code=state.cpCurves[state.cpChannel],values=state.cpNative.curves[code];
+  const canvas=$('cpCurveCanvas'),ctx=canvas.getContext('2d',{colorSpace:'srgb'}),w=canvas.width,h=canvas.height;
   ctx.clearRect(0,0,w,h);ctx.fillStyle='#111216';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#2d3037';ctx.lineWidth=1;
   for(let i=1;i<4;i++){ctx.beginPath();ctx.moveTo(w*i/4,0);ctx.lineTo(w*i/4,h);ctx.stroke();ctx.beginPath();ctx.moveTo(0,h*i/4);ctx.lineTo(w,h*i/4);ctx.stroke();}
   ctx.setLineDash([5,5]);ctx.strokeStyle='#5d616b';ctx.beginPath();ctx.moveTo(0,h);ctx.lineTo(w,0);ctx.stroke();ctx.setLineDash([]);
-  ctx.strokeStyle=['#ff858d','#7fd8a0','#80b3ff'][state.cpChannel];ctx.lineWidth=2.2;ctx.lineJoin='round';ctx.lineCap='round';ctx.beginPath();values.forEach((v,i)=>{const x=i/(values.length-1)*w,y=(1-v)*h;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();
+  const colors=['#ff858d','#7fd8a0','#80b3ff'];
+  for(let channel=0;channel<3;channel++){
+    const values=state.cpNative.curves[state.cpCurves[channel]];ctx.strokeStyle=colors[channel];ctx.lineWidth=2.4;ctx.lineJoin='round';ctx.lineCap='round';ctx.beginPath();
+    values.forEach((v,i)=>{const x=i/(values.length-1)*w,y=(1-v)*h;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();
+  }
 }
 function renderCpUi(){
   if(!state.cpNative)return;
@@ -599,8 +603,8 @@ function renderCpUi(){
   renderCpMatrix();
   const controls=$('cpNativeControls');controls.replaceChildren();const limits=cpModeData().limits;
   state.cpNative.control_labels.forEach((label,index)=>{const wrap=document.createElement('label');wrap.className='control';const head=document.createElement('span'),name=document.createElement('span'),out=document.createElement('output');name.textContent=tr(label,label);out.textContent=String(state.cpControls[index]);head.append(name,out);const slider=document.createElement('input');slider.type='range';slider.min=limits[index][0];slider.max=limits[index][1];slider.step='1';slider.value=state.cpControls[index];slider.oninput=()=>{state.cpControls[index]=Number(slider.value);out.textContent=slider.value;renderCp();};wrap.append(head,slider);controls.appendChild(wrap);});
-  ['R','G','B'].forEach((name,index)=>{$('cpCurve'+name).value=state.cpCurves[index];});$('cpCurveCode').textContent=state.cpCurves;
-  $('cpChannelTabs').querySelectorAll('button').forEach(b=>b.classList.toggle('on',Number(b.dataset.cpChannel)===state.cpChannel));drawCpCurve();
+  $('cpMatrixNote').textContent=tr('固定原厂矩阵 · 从基底库选择','Fixed OEM matrix · Select a factory base');
+  ['R','G','B'].forEach((name,index)=>{$('cpCurve'+name).value=state.cpCurves[index];});$('cpCurveCode').textContent=state.cpCurves;drawCpCurve();
   translateStatic(document.body);
 }
 function srgbDecode(v){v=Math.max(0,Math.min(1,v));return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;}
@@ -672,7 +676,6 @@ function installEvents(){
   $('cpPhotoBtn').onclick=()=>$('cpPhotoFile').click();$('cpPhotoFile').onchange=async e=>{if(e.target.files[0])await loadCpPhoto(e.target.files[0]);e.target.value='';};
   $('cpMode').onchange=()=>{state.cpMode=$('cpMode').value==='extended'?'extended':'random';state.cpBaseIndex=0;state.cpControls=[0,0,0,0,0];if(state.cpMode==='random'&&new Set(state.cpCurves).size<3)state.cpCurves='210';renderCpUi();renderCp();};
   $('cpBase').onchange=()=>{state.cpBaseIndex=Number($('cpBase').value)||0;renderCpUi();renderCp();};
-  $('cpChannelTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.cpChannel=Number(b.dataset.cpChannel);renderCpUi();});
   ['R','G','B'].forEach((name,index)=>{$('cpCurve'+name).onchange=()=>chooseCpCurve(index,$('cpCurve'+name).value);});
   $('cpRecipeBtn').onclick=()=>downloadBlob('PENTAX_CP_10B.bin',cpRecipeBytes(),'application/octet-stream');
   $('cpExportBtn').onclick=()=>{if(!state.cpOriginal)return notify('请先选择照片');$('cpCanvas').toBlob(blob=>downloadBlob('PentaxLabs_CP.png',blob,'image/png'),'image/png');};

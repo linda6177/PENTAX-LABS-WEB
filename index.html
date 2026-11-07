@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="description" content="Pentax Labs Web">
   <title>Pentax Labs</title>
+  <link rel="icon" type="image/x-icon" href="./favicon.ico">
   <link rel="stylesheet" href="./styles.css">
   <script type="module" src="./app.js"></script>
 </head>
@@ -148,15 +149,14 @@
                 <div class="cp-inspector-pane active" data-cp-inspector-pane="basic">
                   <button class="studio-button prominent block" id="cpPhotoBtn">选择照片</button>
                   <div class="cp-select-row"><label>生成模式<select id="cpMode"><option value="random">随机预设</option><option value="extended">扩展基底</option></select></label><label>原厂矩阵基底<select id="cpBase"></select></label></div>
-                  <div class="subhead-line cp-matrix-title"><h3>3 × 3 原厂矩阵 / Q8</h3><span id="cpMatrixNote">可编辑 · 自动吸附原厂银行</span></div>
+                  <div class="subhead-line cp-matrix-title"><h3>3 × 3 原厂矩阵 / Q8</h3><span id="cpMatrixNote">固定原厂矩阵 · 从基底库选择</span></div>
                   <div class="matrix-box cp-matrix-box"><div class="matrix-grid" id="cpMatrixGrid"></div></div>
                   <div id="cpNativeControls" class="cp-native-controls"></div>
                 </div>
                 <div class="cp-inspector-pane" data-cp-inspector-pane="curve">
                   <div class="subhead-line cp-curve-title"><h3>RGB 通道曲线</h3><span id="cpCurveCode">210</span></div>
-                  <div class="cp-channel-row" id="cpChannelTabs"><button data-cp-channel="0" class="on">R</button><button data-cp-channel="1">G</button><button data-cp-channel="2">B</button></div>
                   <canvas id="cpCurveCanvas" class="cp-curve-canvas" width="640" height="320"></canvas>
-                  <p class="hint">原厂 ROM 仅提供 0、1、2 三条曲线索引，调整后可机内导出。</p>
+                  <p class="hint">红、绿、蓝三条曲线同时显示；下方分别选择各通道使用的原厂 ROM 曲线编号。</p>
                   <div class="cp-curve-selectors"><label>R<select id="cpCurveR"><option>0</option><option>1</option><option>2</option></select></label><label>G<select id="cpCurveG"><option>0</option><option>1</option><option>2</option></select></label><label>B<select id="cpCurveB"><option>0</option><option>1</option><option>2</option></select></label></div>
                 </div>
               </div>
@@ -194,7 +194,7 @@
 
     <footer class="foot">
       <div id="footerContext">机型 <strong id="footerCamera">PENTAX K-1 II</strong><i></i> 当前滤镜 <strong id="footerFilter">—</strong></div>
-      <div class="footer-actions"><div id="footerStatus">正在初始化</div><button id="settingsBtn" class="settings-button" title="设置" aria-label="设置">⚙</button></div>
+      <div class="footer-actions"><div id="footerStatus">正在初始化</div><a id="desktopDownloadBtn" class="desktop-download" href="https://github.com/linda6177/PENTAX-LABS-WEB/releases/latest/download/PentaxLabs_Lite_Latest.tar.xz" title="下载最新版 Pentax Labs 桌面版">下载桌面版 Beta82</a><button id="settingsBtn" class="settings-button" title="设置" aria-label="设置">⚙</button></div>
     </footer>
   </div>
 

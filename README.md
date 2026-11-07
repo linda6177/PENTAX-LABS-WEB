@@ -1,14 +1,23 @@
-# Pentax Labs Web · Beta81
+# Pentax Labs Web · Beta82
 
-Pentax Labs Beta81 的浏览器版。桌面程序仍是算法和机内脚本真源；Web 使用同一生产滤镜库、P317/DCU5 显示模型、CP ROM 数据与相机运行模板。
+Pentax Labs Beta82 的浏览器版。桌面程序仍是算法和机内脚本真源；Web 使用同一生产滤镜库、P317/DCU5 显示模型、CP ROM 数据与相机运行模板。
 
-## Beta81 修复
+## Beta82 更新
+
+- 正负逆冲曲线图现在同时叠加显示 R/G/B 三条原厂 ROM 曲线；移除重复的上方 RGB 切换，保留下方 R/G/B 各自的 0/1/2 编号选择。
+- 正负逆冲矩阵来自有限的原厂 ROM 银行，不支持自由编辑。Web 仅显示只读矩阵数值，通过原厂基底列表切换；桌面端同步采用同一规则。
+- 照片输入统一为 sRGB Canvas、浏览器默认 ICC 色彩转换、EXIF 方向校正和最长边 2560px 高质量缩放，靠近桌面端的照片输入规格。滤镜参数内核未因视觉观感而擅自增加饱和度。
+- 导入或应用滤镜时，顶部槽位名称同步为当前滤镜名，自动截取前 6 个字符。
+- 浏览器标签图标使用桌面程序的正式 Pentax Labs 图标。
+- 右下角增加桌面版下载入口。链接固定指向公开 GitHub Releases 的 `latest/download/PentaxLabs_Lite_Latest.tar.xz`；每次发布新桌面版时，将新归档以同一资产名上传到新 Release 即可自动更新下载目标。版本文字由发布脚本读取最新本地 Lite 归档生成。
+
+## Beta81 保留功能
 
 - 自定义滤镜预览不再使用 `RGB + style - natural` 简化代理。Web 已移植桌面 `preview.py` 的 Natural 反变换、hardware Matrix 相对变换和 16381 点 P317/DCU5 tone；Natural/Bright/Monochrome/GOLD 的 RGB8 定向样本与桌面逐通道最大差 `0/255`。
 - 通道曲线改成平滑显示与平滑局部编辑；“加点”现在是真节点，支持新增、拖动和右键删除。最终仍写回机内 256 点（*ist D 为共享 4096 点）曲线。
 - 自定义滤镜相机型号恢复 `PENTAX *ist D / PENTAX K-1 II / PENTAX K-1`。*ist D 使用 signed10 Q8 Matrix + 一条 4096 U8 Gamma，并可直接导出五 TXT。
 - K-1 II Web runtime 修正为桌面实际使用的 `assets/p286/P.BIN + R.BIN + startup.ttl`，并在浏览器加载时校验固定 SHA256；不再发布错误的上一级 P/R。K-1 继续使用 R29 专属底座。
-- 正负逆冲页面改成 Pentax 原生控制：Random/Extended、原厂 3×3 Matrix 银行、五项参数、RGB 0/1/2 ROM 曲线和 10B 配方。矩阵九格可编辑，编辑后吸附到最近的可编码原厂矩阵。
+- 正负逆冲页面保留 Pentax 原生控制：Random/Extended、原厂 3×3 Matrix 银行、五项参数、RGB 0/1/2 ROM 曲线和 10B 配方。
 - 工程模式在 Edge/Chrome 支持 File System Access API 时直接选择目录并写入工程文件；不再把 ZIP 作为主路径。浏览器不支持目录 API 时才回退下载 ZIP。
 - 四季滤镜、*ist D 中文固件和 AF 调焦同步采用相同目录选择流程；每次点击都会打开目录选择器，上次目录只作为起始位置。
 - *ist D 预览修复逆矩阵转置错误，并加入桌面/Web parity；Natural/Monochrome/Kyushu 与桌面 RGB8 逐值 `max=0/255`。
