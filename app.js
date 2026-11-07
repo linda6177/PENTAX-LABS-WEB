@@ -43,14 +43,16 @@ const thumbCache=new Map();
 const originalText=new WeakMap();
 const ACCENTS=['#3178DF','#4E89B1','#A0A0A8','#56AA91','#AA80C7','#C18A5D'];
 const GUIDE_SECTIONS=[
-  ['基础操作','左侧选择原厂或用户滤镜，顶部三个槽位可独立启用。右侧矩阵与曲线直接作用于当前槽位；底部选择实际相机型号。'],
-  ['LUT 导入与导出','导入 .cube 后使用当前 R367 拟合流程转换为机内 Matrix + RGB Gamma。显示的主色差是最终拟合验证值；独立复核值只作为交叉检查。'],
-  ['色彩矩阵与 Gamma 曲线','曲线显示采用和桌面端相同的平滑意图模型：原厂 256 点不会直接限制可见曲线。直接拖动曲线主体可做大范围平滑形变；双击或“加点”增加控制点，右键删除。'],
-  ['照片预览与对比','照片只在浏览器本地解码，不上传。色卡/照片可切换；对比按钮依次为全显示、左右、上下。'],
-  ['正负逆冲','正负逆冲右侧按桌面端分为“色彩调节”和“通道曲线”。色彩页选择原厂矩阵银行与五项机内参数；曲线页查看并选择 ROM 的 RGB 0/1/2 曲线。'],
-  ['四季滤镜','工程模式导出已核验文件。四季滤镜一次写卡、两次开机：01 首次通过工程入口启用 SCRIPT EN MODE 并正常关机；02 保持同一张卡正常开机执行 script/startup.ttl，再检查机内四季滤镜。'],
-  ['*ist D 工具箱','*ist D 自定义滤镜只有 signed10 Q8 Matrix + 一条共享 4096 U8 Gamma，与 K-1/K-1 II 三路 RGB Gamma 能力不同。工具箱还提供中文固件与 AF Fine Adjustment 文件导出。'],
-  ['导出目录与文件','在支持 File System Access API 的 Edge/Chrome 中，导出会先让你选择 SD 卡根目录或测试目录，然后直接写入。浏览器不支持时才回退 ZIP/下载。'],
+  ['基础操作','左侧单击原厂滤镜，将其应用到当前顶部滤镜槽。顶部有三个可独立启用的槽；单击槽位切换当前编辑对象，勾选圆点决定该槽是否导出。右侧“色彩矩阵 / 通道曲线”只编辑当前槽。底部相机型号决定最终导出格式，*ist D 与 K-1/K-1 II 的参数结构不同。','Basic Controls','Click a factory filter on the left to apply it to the active top slot. The three top slots can be enabled independently; click a slot to edit it and use the round check control to include or exclude it from export. Color Matrix and Tone Curves affect only the active slot. The camera model at the bottom determines the final export format; *ist D uses a different parameter structure from K-1/K-1 II.'],
+  ['滤镜管理与重命名','用户滤镜由导入 .cube 产生并保存在浏览器本地。用户滤镜可删除，顶部槽位名称可双击修改。左侧缩略图始终使用当前色卡或当前照片同步渲染，因此换照片后整列预览会一起更新。刷新按钮只重绘列表，不会重新拟合或修改参数。','Filters & Renaming','User filters are created by importing .cube files and are stored locally in the browser. User filters can be deleted and top-slot names can be renamed by double-clicking. Left-side thumbnails always render from the current chart or photo, so the whole list updates when the preview photo changes. Refresh only redraws the list; it does not refit or modify parameters.'],
+  ['LUT 导入与导出','导入 .cube 后使用当前 R367 拟合流程转换为机内 Matrix + RGB Gamma；Web 与桌面使用 canonical Natural、25³ 全色域验证和同一前向模型。显示的主色差是最终拟合验证值，独立复核值只用于交叉检查。复杂 3D LUT 受机内参数自由度限制，不能保证无损还原。','LUT Import & Export','Imported .cube files use the current R367 fitting path to produce camera Matrix + RGB Gamma. Web and desktop share canonical Natural, 25³ full-gamut validation and the same forward model. The headline error is the final-fit validation; an independent check is secondary. Complex 3D LUTs cannot always be reproduced losslessly with the camera parameter surface.'],
+  ['色彩矩阵与 Gamma 曲线','以 Natural 为相对基准。曲线显示采用和桌面端相同的“平滑意图”模型：原厂 256 个物理节点不会直接变成 256 个可见控制点，默认只显示黑白端点。直接拖动曲线主体可做大范围平滑形变；拖端点可改变黑白端位置；双击或“加点”增加中间控制点，右键移除点不会恢复原始效果。显示平滑只负责表达调整意图，后台仍把相对变化写回原有 256 点机内 Gamma；“线性”回到 Natural 对角线，“恢复”返回当前预设基线。','Color Matrix & Gamma Curves','Natural is the relative reference. The curve display uses the same smooth-intent model as desktop: the 256 physical factory nodes are not exposed as 256 visible handles, and only black/white endpoints appear by default. Drag the curve body for broad smooth shaping, move endpoints to change black/white positions, double-click or Add Point for intermediate controls, and right-click a point to remove the handle without reverting the effect. Display smoothing represents editing intent while the relative change is still written back to the original 256 camera Gamma nodes. Linear returns to the Natural diagonal; Restore returns to the active preset baseline.'],
+  ['照片预览与对比','网页启动默认显示色卡。单击“照片”选择本地 JPG/PNG/WebP/AVIF，照片只在浏览器本地解码，不会上传；左侧滤镜缩略图与主预览使用同一张照片。LUT/机内切换用于比较原始 CUBE 与拟合后的机内参数；对比按钮依次切换全显示、左右、上下。照片区域仍支持把 .cube 或照片直接拖入，但不再显示常驻遮挡提示。','Photo Preview & Compare','The web app starts with the color chart. Photo opens a local JPG/PNG/WebP/AVIF and never uploads it; left-side filter thumbnails use the same source as the main preview. LUT/Camera compares the original CUBE with the fitted camera parameters, while Compare cycles Full, Left/Right and Top/Bottom. The photo area still accepts dragged .cube files or photos, but the permanent overlay hint has been removed.'],
+  ['相机脚本导出与注意事项','自定义滤镜页底部选择真实相机型号。K-1 II 使用独立 P286 运行时，K-1 使用独立 R29 运行时；两者都导出 Natural 相对矩阵映射后的 Q8/Q13 与三路 U14。*ist D 使用 signed10 Q8 3×3 Matrix 加一条共享 4096 点 U8 Gamma，所以复杂彩色 LUT 的理论误差可能明显更高。每次点击导出都会先让你选择 SD 卡根目录或测试目录，再直接写入。','Camera Script Export & Notes','Choose the real camera model at the bottom of Custom Filters. K-1 II uses its own P286 runtime and K-1 uses the separate R29 runtime; both export Natural-relative matrix mapping as Q8/Q13 plus three U14 channels. *ist D uses a signed10 Q8 3×3 Matrix plus one shared 4096-node U8 Gamma, so complex color LUTs can have higher model error. Every export first asks for the SD-card root or a test folder and then writes directly.'],
+  ['正负逆冲','正负逆冲右侧和桌面端一样分成“色彩调节”和“通道曲线”两页。色彩调节页选择 Random/Extended 模式、原厂矩阵银行，并调整饱和度、色相、影调、对比度和锐度；3×3 数值编辑会吸附到最近的可编码原厂矩阵。通道曲线页查看 R/G/B 三路完整 ROM 曲线并选择 0、1、2 曲线编号。Random 模式要求三个编号互不重复，预览与 10B 导出按同一原厂配方模型处理。','Cross Processing','Cross Processing mirrors desktop with separate Color Adjustments and Tone Curves pages. Color selects Random/Extended mode, the factory matrix bank and the five native controls; 3×3 edits snap to the nearest encodable factory matrix. Tone Curves shows the complete R/G/B ROM curves and selects indices 0, 1 and 2. Random mode requires three different indices. Preview and 10-byte export use the same factory recipe model.'],
+  ['工程模式与四季滤镜','工程模式只导出项目内已有证据的入口文件。四季滤镜采用“一次写卡、两次开机”：01 第一次按机型对应的工程入口条件开机，尝试启用 SCRIPT EN MODE，然后正常关机；02 保持同一张卡、关好卡门后正常开机，执行 script/startup.ttl，再到机内菜单检查四季滤镜。导出时直接选择 SD 卡根目录或测试目录，不需要中途替换文件。','Service Mode & Four Seasons','Service Mode exports only entry files supported by project evidence. Four Seasons uses one card write and two boots: 01 boot using the model-specific engineering entry procedure, attempt to enable SCRIPT EN MODE, then power off normally; 02 keep the same card inserted, close the card door and boot normally to run script/startup.ttl, then check the seasonal filters in the camera menu. Export directly to the SD-card root or a test folder; no file swapping is needed between boots.'],
+  ['*ist D 工具箱','*ist D 工具箱包含 Firmware 1.12 中文固件和 AF Fine Adjustment。中文固件固定命名 FWDC112B.BIN；调焦范围 −64～+64，默认 +32，生成 KB321.EEP 与 MODSET.TXT。两项都使用“选择目录后直接写入”的流程。*ist D 自定义滤镜的 Matrix/Gamma 能力与 K-1/K-1 II 不同，不能用后三者的三路 Gamma 精度去要求它。','*ist D Toolbox','The *ist D toolbox contains the Chinese Firmware 1.12 file and AF Fine Adjustment. Firmware is always named FWDC112B.BIN; AF adjustment ranges from −64 to +64 with +32 as the default and generates KB321.EEP plus MODSET.TXT. Both use direct folder export. *ist D custom-filter Matrix/Gamma capability differs from K-1/K-1 II and should not be judged against their three independent Gamma channels.'],
+  ['导出目录与浏览器权限','自定义滤镜、工程模式、四季滤镜、*ist D 固件和调焦文件都以“选择目录后直接写入”为主流程。通常直接选择相机 SD 卡根目录，也可以先选任意测试目录。浏览器安全模型不允许网页静默枚举 Windows 盘符或卷标，所以第一次及每次主动导出都会打开系统目录选择器；上次目录只作为起始位置。浏览器不支持 File System Access API 时才回退 ZIP/下载。不要把 script 子目录本身当作 SD 根目录。','Export Folders & Browser Permissions','Custom filters, Service Mode, Four Seasons, *ist D firmware and AF files all use direct folder export as the primary workflow. Normally choose the camera SD-card root, or use a test folder first. Browser security prevents a web page from silently enumerating Windows drive letters or volume labels, so every explicit export opens the system folder picker; the previous folder is only used as the starting location. ZIP/download is only the fallback when the File System Access API is unavailable. Do not select the script subfolder itself as the SD-card root.'],
 ];
 
 function currentSlot(){return state.slots[state.active];}
@@ -80,10 +82,10 @@ function translateStatic(root=document.body){
 }
 function renderGuide(){
   const root=$('guideList');if(!root)return;root.replaceChildren();
-  GUIDE_SECTIONS.forEach(([title,body],index)=>{
+  GUIDE_SECTIONS.forEach(([title,body,titleEn,bodyEn],index)=>{
     const item=document.createElement('div');item.className='guide-item';
     const button=document.createElement('button'),label=document.createElement('b'),arrow=document.createElement('span'),copy=document.createElement('p');
-    label.textContent=tr(title);arrow.textContent='+';copy.textContent=tr(body);button.append(label,arrow);item.append(button,copy);
+    label.textContent=tr(title,titleEn);arrow.textContent='+';copy.textContent=tr(body,bodyEn);button.append(label,arrow);item.append(button,copy);
     button.onclick=()=>{item.classList.toggle('open');arrow.textContent=item.classList.contains('open')?'−':'+';};root.appendChild(item);
   });
 }
@@ -91,7 +93,13 @@ function renderSettings(){
   document.documentElement.lang=resolveLanguage(state.language);
   document.documentElement.style.setProperty('--accent',state.accent);
   const select=$('languageSelect');if(select){select.replaceChildren();LANGUAGE_OPTIONS.forEach(([value,label])=>select.add(new Option(value==='system'?tr('自动（浏览器）','Auto (Browser)'):label,value)));select.value=state.language;}
-  const accents=$('accentRow');if(accents){accents.replaceChildren();ACCENTS.forEach(value=>{const b=document.createElement('button');b.className='accent-choice';b.classList.toggle('on',value.toLowerCase()===state.accent.toLowerCase());b.style.setProperty('--swatch',value);b.innerHTML='<i></i>';b.onclick=()=>{state.accent=value;persist();renderSettings();};accents.appendChild(b);});}
+  const accents=$('accentRow');if(accents){
+    accents.replaceChildren();
+    ACCENTS.forEach(value=>{const b=document.createElement('button');b.className='accent-choice';b.classList.toggle('on',value.toLowerCase()===state.accent.toLowerCase());b.style.setProperty('--swatch',value);b.innerHTML='<i></i>';b.onclick=()=>{state.accent=value;persist();renderSettings();};accents.appendChild(b);});
+    const custom=document.createElement('button');custom.className='accent-choice accent-custom';custom.title=tr('自定义强调色','Custom accent color');
+    const picker=document.createElement('input');picker.type='color';picker.value=/^#[0-9a-f]{6}$/i.test(state.accent)?state.accent:'#3178DF';picker.tabIndex=-1;
+    picker.oninput=()=>{state.accent=picker.value.toUpperCase();persist();renderSettings();};custom.onclick=()=>picker.click();custom.appendChild(picker);accents.appendChild(custom);
+  }
   document.querySelectorAll('[data-settings-page]').forEach(b=>b.classList.toggle('on',b.dataset.settingsPage===state.settingsPage));
   document.querySelectorAll('[data-settings-pane]').forEach(p=>p.classList.toggle('active',p.dataset.settingsPane===state.settingsPage));
   const titles={language:'语言 / 主题',guide:'使用指南',about:'关于'};if($('settingsPageTitle'))$('settingsPageTitle').textContent=tr(titles[state.settingsPage]);
@@ -333,11 +341,29 @@ function fitBezierSegment(values,left,right){
   const slope=right[1]-left[1],scale=minDerivative<0?Math.min(1,slope/Math.max(slope-minDerivative,1e-12)):1;
   return t=>{const raw=left[1]*(1-t)**3+3*c1*t*(1-t)**2+3*c2*t*t*(1-t)+right[1]*t**3,line=left[1]+slope*t;return Math.max(0,Math.min(1,line+scale*(raw-line)));};
 }
+function monotoneSpline(points,count=257){
+  const pts=points.map(p=>[Number(p[0]),Number(p[1])]).sort((a,b)=>a[0]-b[0]);
+  if(pts.length<2)return Array.from({length:count},(_,i)=>i/(count-1));
+  const x=pts.map(p=>p[0]),y=pts.map(p=>p[1]),h=[],d=[];for(let i=0;i<x.length-1;i++){h.push(Math.max(x[i+1]-x[i],1e-9));d.push((y[i+1]-y[i])/h[i]);}
+  const slopes=new Array(x.length).fill(0);
+  if(x.length===2)slopes[0]=slopes[1]=d[0];
+  else{
+    for(let i=1;i<x.length-1;i++)if(d[i-1]*d[i]>0){const w1=2*h[i]+h[i-1],w2=h[i]+2*h[i-1];slopes[i]=(w1+w2)/(w1/d[i-1]+w2/d[i]);}
+    const endpoint=(first,second,ha,hb)=>{const value=((2*ha+hb)*first-ha*second)/(ha+hb);return value*first<=0?0:Math.sign(first)*Math.min(Math.abs(value),3*Math.abs(first));};
+    slopes[0]=endpoint(d[0],d[1],h[0],h[1]);slopes.at(-1)=endpoint(d.at(-1),d.at(-2),h.at(-1),h.at(-2));
+  }
+  const out=[];for(let n=0;n<count;n++){const xx=n/(count-1);let k=0;while(k<x.length-2&&xx>x[k+1])k++;const t=Math.max(0,Math.min(1,(xx-x[k])/h[k])),t2=t*t,t3=t2*t;out.push(Math.max(0,Math.min(1,(2*t3-3*t2+1)*y[k]+(t3-2*t2+t)*h[k]*slopes[k]+(-2*t3+3*t2)*y[k+1]+(t3-t2)*h[k]*slopes[k+1])));}return out;
+}
 function smoothCurveShape(values,points=null){
   const source=values.map(v=>Math.max(0,Math.min(1,Number(v)))),pts=(points&&points.length>=2?points:[[0,source[0]],[1,source.at(-1)]]).map(p=>[Number(p[0]),Number(p[1])]).sort((a,b)=>a[0]-b[0]);
-  const fits=[];for(let i=0;i<pts.length-1;i++)fits.push(fitBezierSegment(source,pts[i],pts[i+1]));
-  const out=new Array(source.length);for(let i=0;i<out.length;i++){const x=i/(out.length-1);let s=Math.max(0,Math.min(pts.length-2,pts.findIndex((p,j)=>j<pts.length-1&&x<=pts[j+1][0])));if(s<0)s=pts.length-2;const a=pts[s],b=pts[s+1],t=Math.max(0,Math.min(1,(x-a[0])/Math.max(b[0]-a[0],1e-6)));out[i]=fits[s](t);}
-  for(let i=1;i<out.length;i++)out[i]=Math.max(out[i],out[i-1]);return out;
+  if(pts.length===2){const fit=fitBezierSegment(source,pts[0],pts[1]),out=[];for(let i=0;i<source.length;i++){const x=i/(source.length-1),t=Math.max(0,Math.min(1,(x-pts[0][0])/Math.max(pts[1][0]-pts[0][0],1e-6)));out.push(x<pts[0][0]?pts[0][1]:x>pts[1][0]?pts[1][1]:fit(t));}return out;}
+  const knots=[];for(let i=0;i<pts.length-1;i++){const a=pts[i],b=pts[i+1],fit=fitBezierSegment(source,a,b);for(const f of [0,.25,.5,.75])knots.push([a[0]+f*(b[0]-a[0]),fit(f)]);}knots.push(pts.at(-1));return monotoneSpline(knots,source.length);
+}
+function curvePointTarget(baseline,points,index,x,y){
+  const old=points.map(p=>p.slice()),next=old.map(p=>p.slice());next[index]=[x,y];const warped=new Array(baseline.length),change=new Array(points.length).fill(0);change[index]=y-old[index][1];
+  for(let i=0;i<warped.length;i++){const xx=i/(warped.length-1);let k=0;while(k<next.length-2&&xx>next[k+1][0])k++;const span=Math.max(next[k+1][0]-next[k][0],1e-9),t=Math.max(0,Math.min(1,(xx-next[k][0])/span)),oldX=old[k][0]+t*(old[k+1][0]-old[k][0]);warped[i]=sampleCurve(baseline,oldX);}
+  const adjustment=monotoneSpline(next.map((p,i)=>[p[0],change[i]*.5+.5]),baseline.length).map(v=>(v-.5)*2);
+  const target=warped.map((v,i)=>Math.max(0,Math.min(1,v+adjustment[i])));return smoothCurveShape(target,next);
 }
 function curveRawView(){return relativeCurve(currentSlot(),state.natural,state.channel,state.curveProfiles,curveFactoryBase(currentSlot()));}
 function curveView(){const cached=state.curveDisplays[state.active][state.channel];return Array.isArray(cached)&&cached.length===257?cached.slice():smoothCurveShape(curveRawView());}
@@ -631,7 +657,8 @@ function installEvents(){
   curve.onpointermove=e=>{
     if(!curvePointer||!curve.hasPointerCapture(e.pointerId))return;const next=pos(e),x=next.index/256;let target;
     if(curvePointer.mode==='point'){
-      const pts=curvePointer.points.map(p=>p.slice()),i=curvePointer.anchorIndex,lo=i>0?pts[i-1][0]+.01:0,hi=i<pts.length-1?pts[i+1][0]-.01:1,xx=Math.max(lo,Math.min(hi,x)),yy=Math.max(i>0?pts[i-1][1]:0,Math.min(i<pts.length-1?pts[i+1][1]:1,next.value));pts[i]=[xx,yy];target=smoothCurveShape(curvePointer.display,pts);state.curveAnchors[state.active][state.channel]=pts;
+      const pts=curvePointer.points.map(p=>p.slice()),i=curvePointer.anchorIndex,lo=i>0?pts[i-1][0]+.01:0,hi=i<pts.length-1?pts[i+1][0]-.01:1,xx=Math.max(lo,Math.min(hi,x)),yy=Math.max(i>0?pts[i-1][1]:0,Math.min(i<pts.length-1?pts[i+1][1]:1,next.value));pts[i]=[xx,yy];
+      target=curvePointTarget(curvePointer.display,curvePointer.points,i,xx,yy);state.curveAnchors[state.active][state.channel]=pts;
     }else target=curveBodyTarget(curvePointer.display,curvePointer.points,curvePointer.grabX,curvePointer.grabY+next.value-curvePointer.pressY);
     if(state.channel===0)currentSlot().masterCurve=curvePointer.native.slice();else currentSlot().curves[state.channel-1]=curvePointer.native.slice();applyRelativeCurve(currentSlot(),state.natural,state.channel,target,curvePointer.display,state.curveProfiles);state.curveDisplays[state.active][state.channel]=target.slice();drawCurve();queueRender();
   };

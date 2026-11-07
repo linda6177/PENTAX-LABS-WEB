@@ -1,6 +1,6 @@
 {
   "product": "Pentax Labs Web",
   "desktop_baseline": "main",
-  "source_commit": "6657ecbd68f23994d6f7a3ad99b6e0a0aa1d1f04",
+  "source_commit": "f78e42c5767ecdaadb638eeb2b000653d38bdc74",
   "published_by": "tools/publish_web_public.py"
 }
