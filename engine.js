@@ -14,7 +14,9 @@ export function cloneSlot(slot) {
   return {
     ...slot,
     matrix: slot.matrix.map(row => row.slice()),
+    colorBaseMatrix: (slot.colorBaseMatrix || slot.matrix).map(row => row.slice()),
     curves: slot.curves.map(row => row.slice()),
+    masterCurve: (slot.masterCurve || identityCurve()).slice(),
     fit_report: {...(slot.fit_report || {})},
     sourceLut: slot.sourceLut || null,
   };
@@ -34,12 +36,16 @@ export function slotFromFactory(row, cameraModel='k1ii') {
     name: row.label,
     enabled: true,
     matrix: row.matrix_q8.map(values => values.map(Number)),
+    colorBaseMatrix: row.matrix_q8.map(values => values.map(Number)),
     curves: row.curve_u14.map(values => values.map(Number)),
+    masterCurve: identityCurve(),
     preset_key: row.key,
     matrix_domain: row.matrix_domain || 'natural_relative',
     camera_model: cameraModel,
     brightness_ev: 0,
     contrast: 0,
+    color_hue: 0,
+    color_sat: 1,
     user_preset_id: '',
     fit_report: {
       mean_de00: Number(row.model_de00 || 0),
@@ -48,6 +54,136 @@ export function slotFromFactory(row, cameraModel='k1ii') {
     },
     sourceLut: null,
   };
+}
+
+function matrixMultiply(a,b) {
+  return a.map((row,r) => [0,1,2].map(c =>
+    row[0]*b[0][c] + row[1]*b[1][c] + row[2]*b[2][c]));
+}
+
+function invert3(matrix) {
+  const m=matrix;
+  const a=m[0][0],b=m[0][1],c=m[0][2],d=m[1][0],e=m[1][1],f=m[1][2],g=m[2][0],h=m[2][1],i=m[2][2];
+  const A=e*i-f*h,B=-(d*i-f*g),C=d*h-e*g,D=-(b*i-c*h),E=a*i-c*g,F=-(a*h-b*g),G=b*f-c*e,H=-(a*f-c*d),I=a*e-b*d;
+  const det=a*A+b*B+c*C;
+  if (Math.abs(det)<1e-12) throw Error('Natural 矩阵不可逆');
+  return [[A,D,G],[B,E,H],[C,F,I]].map(row=>row.map(v=>v/det));
+}
+
+function matrixReference(naturalSlot,reference=null) {
+  return (reference || naturalSlot.matrix).map(row=>row.map(Number));
+}
+
+export function displayMatrix(slot,naturalSlot,reference=null) {
+  const relative=matrixMultiply(slot.matrix.map(r=>r.map(v=>v/256)),
+    invert3(matrixReference(naturalSlot,reference).map(r=>r.map(v=>v/256))));
+  return normalizeRows(relative.map(r=>r.map(v=>Math.round(v*256))));
+}
+
+export function setDisplayMatrix(slot,naturalSlot,display,reference=null) {
+  const actual=matrixMultiply(display.map(r=>r.map(v=>v/256)), matrixReference(naturalSlot,reference));
+  slot.matrix=normalizeRows(actual);
+  return slot.matrix;
+}
+
+function interp(values,x) {
+  const point=clamp01(x)*(values.length-1);
+  const left=Math.min(values.length-2,Math.floor(point));
+  const f=point-left;
+  return values[left]*(1-f)+values[left+1]*f;
+}
+
+function smoothFactoryApprox(curve) {
+  let values=curve.map(v=>Number(v)/WHITE);
+  const kernel=[1/16,4/16,6/16,4/16,1/16];
+  for(let pass=0;pass<2;pass++) {
+    const next=new Array(values.length);
+    for(let i=0;i<values.length;i++) {
+      let sum=0;
+      for(let k=-2;k<=2;k++) sum+=values[Math.max(0,Math.min(values.length-1,i+k))]*kernel[k+2];
+      next[i]=sum;
+    }
+    values=next;
+  }
+  return values;
+}
+
+export function relativeCurve(slot,naturalSlot,channel,profiles=null,factoryBase=null) {
+  const axis=profiles?.axis || Array.from({length:257},(_,i)=>i/256);
+  if (channel===0) {
+    const master=(slot.masterCurve||identityCurve()).map(v=>clamp01(v/WHITE));
+    return axis.map(x=>interp(master,x));
+  }
+  if (!profiles) {
+    const current=slot.curves[channel-1], natural=naturalSlot.curves[channel-1];
+    return axis.map(x=>clamp01(x+interp(current.map(v=>v/WHITE),x)-interp(natural.map(v=>v/WHITE),x)));
+  }
+  // Match desktop relative_curves.py exactly: production factory keys are
+  // namespaced (for example k12:bright), so the measured display reference
+  // intentionally falls back to Natural. Only legacy plain keys use their
+  // matching P317 measured profile.
+  const rawKey=String(slot.preset_key||'natural');
+  const key=profiles.profiles[rawKey]?rawKey:'natural';
+  let tone=profiles.profiles[key][channel-1].slice();
+  const base=profiles.native_reference?.[key]?.[channel-1]
+    || (profiles.profiles[rawKey]?factoryBase:naturalSlot)?.curves?.[channel-1]
+    || naturalSlot.curves[channel-1];
+  const current=slot.curves[channel-1];
+  let changed=false;
+  for(let i=0;i<NODES;i++) if(Math.round(current[i])!==Math.round(base[i])) {changed=true;break;}
+  if(changed) {
+    const a=smoothFactoryApprox(current), b=smoothFactoryApprox(base);
+    for(let i=0;i<tone.length;i++) {
+      const x=i/(tone.length-1);
+      tone[i]=clamp01(tone[i]+interp(a,x)-interp(b,x));
+    }
+    tone=isotonic(tone,tone.map(()=>1));
+  }
+  return axis.map((x,i)=>clamp01(
+    x + interp(tone,profiles.latent[i]) - profiles.natural_at_latent[channel-1][i]));
+}
+
+export function applyRelativeCurve(slot,naturalSlot,channel,target,previous,profiles=null) {
+  const clean=target.map(clamp01);
+  const delta=clean.map((value,i)=>value-previous[i]);
+  if (channel===0) {
+    const values=(slot.masterCurve||identityCurve()).map((value,i)=>
+      Math.round(clamp01(value/WHITE+interp(delta,i/(NODES-1)))*WHITE));
+    for(let i=1;i<values.length;i++) values[i]=Math.max(values[i],values[i-1]);
+    slot.masterCurve=values;
+    return;
+  }
+  const displayAxis=profiles?.natural_native_display?.[channel-1] ||
+    Array.from({length:NODES},(_,i)=>i/(NODES-1));
+  const native=slot.curves[channel-1].map((value,i)=>
+    Math.round(clamp01(value/WHITE+interp(delta,displayAxis[i]))*WHITE));
+  for(let i=1;i<native.length;i++) native[i]=Math.max(native[i],native[i-1]);
+  slot.curves[channel-1]=native;
+}
+
+export function saturationMatrix(strength) {
+  const lum=[.2126,.7152,.0722];
+  const m=Array.from({length:3},(_,r)=>Array.from({length:3},(_,c)=>
+    lum[c]*(1-strength)+(r===c?strength:0)));
+  return normalizeRows(m.map(row=>row.map(v=>Math.round(v*256))));
+}
+
+export function hueMatrix(degrees) {
+  const a=degrees*Math.PI/180,c=Math.cos(a),s=Math.sin(a),q=Math.sqrt(3);
+  const k=[[0,-1/q,1/q],[1/q,0,-1/q],[-1/q,1/q,0]];
+  const kk=matrixMultiply(k,k);
+  const m=Array.from({length:3},(_,r)=>Array.from({length:3},(_,col)=>
+    (r===col?1:0)+s*k[r][col]+(1-c)*kk[r][col]));
+  return normalizeRows(m.map(row=>row.map(v=>Math.round(v*256))));
+}
+
+export function applyColorControls(baseMatrix,saturation=1,hue=0) {
+  let matrix=baseMatrix.map(row=>row.map(Number));
+  if(Math.abs(saturation-1)>.001)
+    matrix=matrixMultiply(matrix,saturationMatrix(saturation)).map(row=>row.map(v=>v/256));
+  if(Math.abs(hue)>.001)
+    matrix=matrixMultiply(matrix,hueMatrix(hue)).map(row=>row.map(v=>v/256));
+  return matrix.map(row=>row.map(v=>Math.round(v)));
 }
 
 export function parseCube(text, filename='Imported.cube') {
@@ -145,11 +281,12 @@ export function evaluateCube(cube, rgb) {
   return out.map(clamp01);
 }
 
-function effectiveCurve(curve, contrast=0, brightnessEv=0) {
+function effectiveCurve(curve, masterCurve, contrast=0, brightnessEv=0) {
   const power = Math.max(.25, 1 + Number(contrast || 0) / 100);
   const gain = 2 ** Number(brightnessEv || 0);
+  const master=(masterCurve||identityCurve()).map(v=>clamp01(v/WHITE));
   return curve.map(raw => {
-    let value = clamp01(raw / WHITE);
+    let value = curveAt(master, clamp01(raw / WHITE));
     if (contrast) {
       const high = value ** power;
       const low = (1 - value) ** power;
@@ -157,6 +294,12 @@ function effectiveCurve(curve, contrast=0, brightnessEv=0) {
     }
     return clamp01(value * gain);
   });
+}
+
+export function effectiveCurves(slot) {
+  return slot.curves.map(curve =>
+    effectiveCurve(curve,slot.masterCurve,slot.contrast||0,slot.brightness_ev||0)
+      .map(value=>Math.round(clamp01(value)*WHITE)));
 }
 
 function curveAt(curve, value) {
@@ -175,7 +318,7 @@ export function nativeStageAt(slot, rgb) {
        slot.matrix[row][2] * rgb[2]) / 256);
   }
   const curves = slot.curves.map(curve =>
-    effectiveCurve(curve, slot.contrast || 0, slot.brightness_ev || 0));
+    effectiveCurve(curve, slot.masterCurve, slot.contrast || 0, slot.brightness_ev || 0));
   return mixed.map((value, channel) => curveAt(curves[channel], value));
 }
 
@@ -183,7 +326,7 @@ function prepareStage(slot) {
   return {
     matrix: slot.matrix.map(row => row.map(Number)),
     curves: slot.curves.map(curve =>
-      effectiveCurve(curve, slot.contrast || 0, slot.brightness_ev || 0)),
+      effectiveCurve(curve, slot.masterCurve, slot.contrast || 0, slot.brightness_ev || 0)),
   };
 }
 
@@ -398,12 +541,16 @@ export function fitCubeQuick(cube, naturalSlot, cameraModel='k1ii') {
     name: cube.name,
     enabled: true,
     matrix,
+    colorBaseMatrix: matrix.map(row=>row.slice()),
     curves,
+    masterCurve: identityCurve(),
     preset_key: 'k12:natural',
     matrix_domain: 'natural_relative',
     camera_model: cameraModel,
     brightness_ev: 0,
     contrast: 0,
+    color_hue: 0,
+    color_sat: 1,
     user_preset_id: '',
     fit_report: {},
     sourceLut: cube,
