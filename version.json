@@ -1,9 +1,9 @@
 {
   "product": "Pentax Labs Web",
   "desktop_baseline": "main",
-  "source_commit": "abaf8c5baedb45b9ed5b4ca0a07b5f99bc1bd530",
-  "desktop_release": "Beta83 Lite",
-  "desktop_release_tag": "beta83",
+  "source_commit": "fa1411797fbbf04eb0af1a007bb49c55d55830d4",
+  "desktop_release": "Beta84 Lite",
+  "desktop_release_tag": "beta84",
   "desktop_download_url": "https://github.com/linda6177/PENTAX-LABS-WEB/releases/latest/download/PentaxLabs_Lite_Latest.tar.xz",
   "published_by": "tools/publish_web_public.py"
 }

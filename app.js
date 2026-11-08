@@ -171,7 +171,7 @@ async function loadLibraries(){
   state.natural=slotFromFactory(naturalRow,state.cameraModel);state.curveProfiles=profiles;state.engineeringPayload=engineering;state.cpNative=cpNative;
   $('familyLabel').textContent=family.label||'K12';
   const download=$('desktopDownloadBtn');
-  if(download){download.textContent=tr('下载桌面版','Download Desktop')+' '+String(releaseInfo.desktop_release||'Latest');if(releaseInfo.desktop_download_url)download.href=releaseInfo.desktop_download_url;}
+  if(download){download.textContent=tr('下载桌面版','Download Desktop');if(releaseInfo.desktop_download_url)download.href=releaseInfo.desktop_download_url;}
 }
 function initializeSlots(){
   const restored=restoreLocal();
@@ -687,7 +687,7 @@ function installEvents(){
 async function start(){
   installEvents();
   try{
-    setStatus(tr('加载 Beta83 Web','Loading Beta83 Web'));await loadLibraries();initializeSlots();rebuildFactorySlots();
+    setStatus(tr('正在加载','Loading'));await loadLibraries();initializeSlots();rebuildFactorySlots();
     const [k1iiRuntime,k1Runtime]=await Promise.all([loadBuiltinRuntime('k1ii'),loadBuiltinRuntime('k1')]);
     state.runtimeBases.k1ii=k1iiRuntime;state.runtimeBases.k1=k1Runtime;
     const hash=location.hash.replace(/^#/,'');if(FEATURES.some(x=>x[0]===hash))state.currentPage=hash;
@@ -699,7 +699,7 @@ async function start(){
       }
       hydrateUserSources();refresh();persist();
     }catch(e){console.warn('IndexedDB unavailable',e);notify('浏览器持久存储不可用，本次会话仍可使用');}
-    let ready=tr('就绪','Ready')+' · Beta83 Web';
+    let ready=tr('就绪','Ready');
     if(state.sdRoot&&await state.sdRoot.queryPermission?.({mode:'readwrite'})==='granted')
       ready+=' · SD '+(/dcram/i.test(state.sdRoot.name||'')?'DCRAM':(state.sdRoot.name||''));
     setStatus(ready);
