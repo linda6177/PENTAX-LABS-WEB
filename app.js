@@ -37,7 +37,7 @@ const originalContext=original.getContext('2d',{colorSpace:'srgb',willReadFreque
 const preview=$('previewCanvas'), previewContext=preview.getContext('2d',{colorSpace:'srgb',willReadFrequently:true});
 const thumbOriginal=document.createElement('canvas'),thumbOriginalContext=thumbOriginal.getContext('2d',{colorSpace:'srgb',willReadFrequently:true});
 const cpOriginal=document.createElement('canvas'), cpOriginalCtx=cpOriginal.getContext('2d',{colorSpace:'srgb',willReadFrequently:true});
-let renderTimer=0,toastTimer=0,curvePointer=null;
+let renderTimer=0,toastTimer=0,curvePointer=null,curveLastTap=null,curveHoverIndex=-1;
 let thumbRevision=0;
 const thumbCache=new Map();
 const originalText=new WeakMap();
@@ -46,7 +46,7 @@ const GUIDE_SECTIONS=[
   ['基础操作','左侧单击原厂滤镜，将其应用到当前顶部滤镜槽。顶部有三个可独立启用的槽；单击槽位切换当前编辑对象，勾选圆点决定该槽是否导出。右侧“色彩矩阵 / 通道曲线”只编辑当前槽。底部相机型号决定最终导出格式，*ist D 与 K-1/K-1 II 的参数结构不同。','Basic Controls','Click a factory filter on the left to apply it to the active top slot. The three top slots can be enabled independently; click a slot to edit it and use the round check control to include or exclude it from export. Color Matrix and Tone Curves affect only the active slot. The camera model at the bottom determines the final export format; *ist D uses a different parameter structure from K-1/K-1 II.'],
   ['滤镜管理与重命名','用户滤镜由导入 .cube 产生并保存在浏览器本地。用户滤镜可删除，顶部槽位名称可双击修改。左侧缩略图始终使用当前色卡或当前照片同步渲染，因此换照片后整列预览会一起更新。刷新按钮只重绘列表，不会重新拟合或修改参数。','Filters & Renaming','User filters are created by importing .cube files and are stored locally in the browser. User filters can be deleted and top-slot names can be renamed by double-clicking. Left-side thumbnails always render from the current chart or photo, so the whole list updates when the preview photo changes. Refresh only redraws the list; it does not refit or modify parameters.'],
   ['LUT 导入与导出','导入 .cube 后使用当前 R367 拟合流程转换为机内 Matrix + RGB Gamma；Web 与桌面使用 canonical Natural、25³ 全色域验证和同一前向模型。显示的主色差是最终拟合验证值，独立复核值只用于交叉检查。复杂 3D LUT 受机内参数自由度限制，不能保证无损还原。','LUT Import & Export','Imported .cube files use the current R367 fitting path to produce camera Matrix + RGB Gamma. Web and desktop share canonical Natural, 25³ full-gamut validation and the same forward model. The headline error is the final-fit validation; an independent check is secondary. Complex 3D LUTs cannot always be reproduced losslessly with the camera parameter surface.'],
-  ['色彩矩阵与 Gamma 曲线','以 Natural 为相对基准。曲线显示采用和桌面端相同的“平滑意图”模型：原厂 256 个物理节点不会直接变成 256 个可见控制点，默认只显示黑白端点。直接拖动曲线主体可做大范围平滑形变；拖端点可改变黑白端位置；双击或“加点”增加中间控制点，右键移除点不会恢复原始效果。显示平滑只负责表达调整意图，后台仍把相对变化写回原有 256 点机内 Gamma；“线性”回到 Natural 对角线，“恢复”返回当前预设基线。','Color Matrix & Gamma Curves','Natural is the relative reference. The curve display uses the same smooth-intent model as desktop: the 256 physical factory nodes are not exposed as 256 visible handles, and only black/white endpoints appear by default. Drag the curve body for broad smooth shaping, move endpoints to change black/white positions, double-click or Add Point for intermediate controls, and right-click a point to remove the handle without reverting the effect. Display smoothing represents editing intent while the relative change is still written back to the original 256 camera Gamma nodes. Linear returns to the Natural diagonal; Restore returns to the active preset baseline.'],
+  ['色彩矩阵与 Gamma 曲线','以 Natural 为相对基准。曲线显示采用和桌面端相同的“平滑意图”模型：原厂 256 个物理节点不会直接变成 256 个可见控制点，默认只显示黑白端点。像 Lightroom 一样单击曲线添加控制点，并在同一次拖动中调整；已有点有更大的触控命中范围。Alt+拖动曲线主体可做大范围平滑形变；“加点”可在图表任意位置创建节点，右键删除，触屏双击节点删除。后台仍把相对变化写回原有 256 点机内 Gamma。','Color Matrix & Gamma Curves','Natural is the relative reference. The curve uses the same smooth-intent model as desktop: the 256 physical factory nodes are not exposed as 256 visible handles, and only black/white endpoints appear by default. Like Lightroom, click the curve to add a control point and keep dragging in the same gesture; handles have generous touch targets. Alt-drag the curve body for broad smooth shaping, or use Add point anywhere in the graph. Right-click removes a point; double-tap removes one on touchscreens. Relative changes still map back to the original 256 camera Gamma nodes.'],
   ['照片预览与对比','网页启动默认显示色卡。单击“照片”选择本地 JPG/PNG/WebP/AVIF，照片只在浏览器本地解码，不会上传；左侧滤镜缩略图与主预览使用同一张照片。LUT/机内切换用于比较原始 CUBE 与拟合后的机内参数；对比按钮依次切换全显示、左右、上下。照片区域仍支持把 .cube 或照片直接拖入，但不再显示常驻遮挡提示。','Photo Preview & Compare','The web app starts with the color chart. Photo opens a local JPG/PNG/WebP/AVIF and never uploads it; left-side filter thumbnails use the same source as the main preview. LUT/Camera compares the original CUBE with the fitted camera parameters, while Compare cycles Full, Left/Right and Top/Bottom. The photo area still accepts dragged .cube files or photos, but the permanent overlay hint has been removed.'],
   ['相机脚本导出与注意事项','自定义滤镜页底部选择真实相机型号。K-1 II 使用独立 P286 运行时，K-1 使用独立 R29 运行时；两者都导出 Natural 相对矩阵映射后的 Q8/Q13 与三路 U14。*ist D 使用 signed10 Q8 3×3 Matrix 加一条共享 4096 点 U8 Gamma，所以复杂彩色 LUT 的理论误差可能明显更高。每次点击导出都会先让你选择 SD 卡根目录或测试目录，再直接写入。','Camera Script Export & Notes','Choose the real camera model at the bottom of Custom Filters. K-1 II uses its own P286 runtime and K-1 uses the separate R29 runtime; both export Natural-relative matrix mapping as Q8/Q13 plus three U14 channels. *ist D uses a signed10 Q8 3×3 Matrix plus one shared 4096-node U8 Gamma, so complex color LUTs can have higher model error. Every export first asks for the SD-card root or a test folder and then writes directly.'],
   ['正负逆冲','正负逆冲右侧分成“色彩调节”和“通道曲线”两页。色彩调节页选择 Random/Extended 模式与原厂矩阵基底，并调整饱和度、色相、影调、对比度和锐度；矩阵数值由原厂数据在内部参与处理，页面不显示也不提供矩阵编辑。通道曲线页同时显示 R/G/B 三路完整 ROM 曲线，下方分别选择各通道的 0、1、2 曲线编号。Random 模式要求三个编号互不重复，预览与 10B 导出按同一原厂配方模型处理。','Cross Processing','Cross Processing has separate Color Adjustments and Tone Curves pages. Color selects Random/Extended mode and an OEM matrix base, then adjusts saturation, hue, tone, contrast and sharpness. The OEM matrix remains internal to the rendering pipeline; no matrix editor or matrix-value panel is shown. Tone Curves displays all three R/G/B ROM curves simultaneously, with independent 0/1/2 selectors below each channel. Random mode requires three different indices. Preview and 10-byte export use the same factory recipe model.'],
@@ -353,7 +353,7 @@ function monotoneSpline(points,count=257){
   else{
     for(let i=1;i<x.length-1;i++)if(d[i-1]*d[i]>0){const w1=2*h[i]+h[i-1],w2=h[i]+2*h[i-1];slopes[i]=(w1+w2)/(w1/d[i-1]+w2/d[i]);}
     const endpoint=(first,second,ha,hb)=>{const value=((2*ha+hb)*first-ha*second)/(ha+hb);return value*first<=0?0:Math.sign(first)*Math.min(Math.abs(value),3*Math.abs(first));};
-    slopes[0]=endpoint(d[0],d[1],h[0],h[1]);slopes.at(-1)=endpoint(d.at(-1),d.at(-2),h.at(-1),h.at(-2));
+    slopes[0]=endpoint(d[0],d[1],h[0],h[1]);slopes[slopes.length-1]=endpoint(d.at(-1),d.at(-2),h.at(-1),h.at(-2));
   }
   const out=[];for(let n=0;n<count;n++){const xx=n/(count-1);let k=0;while(k<x.length-2&&xx>x[k+1])k++;const t=Math.max(0,Math.min(1,(xx-x[k])/h[k])),t2=t*t,t3=t2*t;out.push(Math.max(0,Math.min(1,(2*t3-3*t2+1)*y[k]+(t3-2*t2+t)*h[k]*slopes[k]+(-2*t3+3*t2)*y[k+1]+(t3-t2)*h[k]*slopes[k+1])));}return out;
 }
@@ -386,7 +386,7 @@ function drawCurve(){
   const colors=['#d7d7de','#ef6767','#6fd58b','#6ba4ff'];ctx.strokeStyle=colors[state.channel];ctx.lineWidth=2.2;ctx.lineJoin='round';ctx.lineCap='round';ctx.beginPath();
   values.forEach((v,i)=>{const x=i/(values.length-1)*w,y=h-Math.max(0,Math.min(1,v))*h;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();
   const anchors=curvePoints(values);
-  anchors.forEach(([x,y])=>{ctx.beginPath();ctx.arc(x*w,(1-y)*h,5.5,0,Math.PI*2);ctx.fillStyle='#17181c';ctx.fill();ctx.strokeStyle=colors[state.channel];ctx.lineWidth=2;ctx.stroke();});
+  anchors.forEach(([x,y],index)=>{const selected=index===curveHoverIndex||index===curvePointer?.anchorIndex;if(selected){ctx.beginPath();ctx.arc(x*w,(1-y)*h,14,0,Math.PI*2);ctx.strokeStyle=colors[state.channel];ctx.globalAlpha=.24;ctx.lineWidth=1.5;ctx.stroke();ctx.globalAlpha=1;}ctx.beginPath();ctx.arc(x*w,(1-y)*h,selected?7:6,0,Math.PI*2);ctx.fillStyle='#17181c';ctx.fill();ctx.strokeStyle=colors[state.channel];ctx.lineWidth=2;ctx.stroke();});
 }
 function refreshControls(){
   const slot=currentSlot();$('brightness').value=Number(slot.brightness_ev||0);$('brightnessVal').textContent=(slot.brightness_ev>=0?'+':'')+Number(slot.brightness_ev||0).toFixed(2)+' EV';
@@ -645,30 +645,50 @@ function installEvents(){
   $('resetBasicBtn').onclick=()=>{const slot=currentSlot();slot.brightness_ev=0;slot.contrast=0;slot.color_sat=1;slot.color_hue=0;slot.matrix=(slot.colorBaseMatrix||slot.matrix).map(r=>r.slice());persist();refreshControls();queueRender();};
   $('resetMatrixBtn').onclick=()=>{const slot=currentSlot(),base=currentBase();slot.matrix=base.matrix.map(r=>r.slice());slot.colorBaseMatrix=slot.matrix.map(r=>r.slice());slot.color_sat=1;slot.color_hue=0;persist();refreshControls();queueRender();};
   document.querySelectorAll('.right-tabs button').forEach(b=>b.onclick=()=>setInspector(b.dataset.inspector));
-  $('channelTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.channel=Number(b.dataset.channel);refreshControls();});
+  $('channelTabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{state.channel=Number(b.dataset.channel);curveHoverIndex=-1;curveLastTap=null;refreshControls();});
   $('resetCurveBtn').onclick=()=>{const slot=currentSlot(),base=currentBase();if(state.channel===0)slot.masterCurve=base.masterCurve.slice();else slot.curves[state.channel-1]=base.curves[state.channel-1].slice();state.curveAnchors[state.active][state.channel]=[];state.curveDisplays[state.active][state.channel]=null;persist();drawCurve();queueRender();};
   $('linearCurveBtn').onclick=()=>{const before=curveView(),target=state.curveProfiles.axis.slice();if(state.channel===0)currentSlot().masterCurve=currentSlot().masterCurve.slice();else currentSlot().curves[state.channel-1]=currentSlot().curves[state.channel-1].slice();applyRelativeCurve(currentSlot(),state.natural,state.channel,target,before,state.curveProfiles);state.curveDisplays[state.active][state.channel]=target.slice();state.curveAnchors[state.active][state.channel]=[[0,0],[1,1]];persist();drawCurve();queueRender();};
   $('addCurvePointBtn').onclick=()=>{state.curveAddMode=!state.curveAddMode;$('addCurvePointBtn').classList.toggle('prominent',state.curveAddMode);notify(tr(state.curveAddMode?'在曲线上点击添加节点':'已取消加点',state.curveAddMode?'Click the curve to add a point':'Add-point mode cancelled'));};
   const curve=$('curveCanvas'),pos=e=>{const r=curve.getBoundingClientRect();return {index:Math.max(0,Math.min(256,(e.clientX-r.left)/r.width*256)),value:Math.max(0,Math.min(1,1-(e.clientY-r.top)/r.height))};};
-  const nearestCurveAnchor=e=>{const r=curve.getBoundingClientRect(),display=curveView(),anchors=curvePoints(display),p=pos(e);let best=-1,dist=18;anchors.forEach(([x,y],i)=>{const dx=(x-p.index/256)*r.width,dy=(y-p.value)*r.height,d=Math.hypot(dx,dy);if(d<dist){dist=d;best=i;}});return best;};
-  const addCurveAnchor=e=>{const p=pos(e),x=p.index/256,display=curveView(),anchors=ensureCurvePoints(display);if(anchors.some(([px])=>Math.abs(px-x)<.02))return;anchors.push([x,sampleCurve(display,x)]);anchors.sort((a,b)=>a[0]-b[0]);state.curveDisplays[state.active][state.channel]=display.slice();state.curveAddMode=false;$('addCurvePointBtn').classList.remove('prominent');persist();drawCurve();};
+  const handleRadius=e=>e.pointerType==='touch'?34:e.pointerType==='pen'?30:28;
+  const curveRadius=e=>e.pointerType==='touch'?34:28;
+  const nearestCurveAnchor=(e,limit=handleRadius(e))=>{const r=curve.getBoundingClientRect(),display=curveView(),anchors=curvePoints(display),p=pos(e);let best=-1,dist=limit;anchors.forEach(([x,y],i)=>{const dx=(x-p.index/256)*r.width,dy=(y-p.value)*r.height,d=Math.hypot(dx,dy);if(d<dist){dist=d;best=i;}});return best;};
+  const addCurveAnchorAt=(x,display)=>{const anchors=ensureCurvePoints(display),existing=anchors.findIndex(([px])=>Math.abs(px-x)<.01);if(existing>=0)return existing;anchors.push([x,sampleCurve(display,x)]);anchors.sort((a,b)=>a[0]-b[0]);state.curveDisplays[state.active][state.channel]=display.slice();state.curveAddMode=false;$('addCurvePointBtn').classList.remove('prominent');return anchors.findIndex(([px])=>Math.abs(px-x)<1e-8);};
+  const removeCurveAnchor=index=>{const points=ensureCurvePoints(curveView());if(index>0&&index<points.length-1){points.splice(index,1);curveLastTap=null;persist();drawCurve();return true;}return false;};
   curve.onpointerdown=e=>{
-    if(e.button!==0)return;if(state.curveAddMode){addCurveAnchor(e);return;}
-    const p=pos(e),display=curveView(),points=ensureCurvePoints(display),r=curve.getBoundingClientRect(),anchorIndex=nearestCurveAnchor(e),curveY=sampleCurve(display,p.index/256),distance=Math.abs((curveY-p.value)*r.height);
-    if(anchorIndex<0&&distance>16)return;
-    curve.setPointerCapture(e.pointerId);curvePointer={display,native:state.channel===0?currentSlot().masterCurve.slice():currentSlot().curves[state.channel-1].slice(),points:points.map(x=>x.slice()),anchorIndex,mode:anchorIndex>=0?'point':'body',grabX:p.index/256,grabY:curveY,pressY:p.value};
+    if(e.button!==0||!e.isPrimary)return;e.preventDefault();
+    const p=pos(e),display=curveView(),points=ensureCurvePoints(display),r=curve.getBoundingClientRect(),anchorIndex=nearestCurveAnchor(e),x=p.index/256,curveY=sampleCurve(display,x),distance=Math.abs((curveY-p.value)*r.height);
+    // Lightroom Mobile removes a point with a double tap. Keep the same
+    // action available on touchscreens where a context menu does not exist.
+    if(e.pointerType==='touch'&&anchorIndex>0&&anchorIndex<points.length-1&&curveLastTap&&curveLastTap.index===anchorIndex&&performance.now()-curveLastTap.time<360&&Math.hypot(e.clientX-curveLastTap.x,e.clientY-curveLastTap.y)<44){removeCurveAnchor(anchorIndex);return;}
+    if(anchorIndex<0&&!state.curveAddMode&&distance>curveRadius(e))return;
+    curve.setPointerCapture(e.pointerId);
+    let mode='point',selectedIndex=anchorIndex,createdAnchor=false;
+    if(selectedIndex<0){
+      if(e.altKey&&!state.curveAddMode)mode='body';
+      else{
+        const previousCount=points.length;
+        selectedIndex=addCurveAnchorAt(x,display);
+        createdAnchor=ensureCurvePoints(display).length>previousCount;
+      }
+    }
+    const activePoints=ensureCurvePoints(display),selectedPoint=selectedIndex>=0?activePoints[selectedIndex]:null;
+    curvePointer={pointerId:e.pointerId,pointerType:e.pointerType,display,native:state.channel===0?currentSlot().masterCurve.slice():currentSlot().curves[state.channel-1].slice(),points:activePoints.map(point=>point.slice()),anchorIndex:selectedIndex,mode,createdAnchor,grabX:x,grabY:curveY,pressY:p.value,grabOffsetX:mode==='point'&&selectedPoint?selectedPoint[0]-x:0,grabOffsetY:mode==='point'&&selectedPoint?selectedPoint[1]-p.value:0,pressX:e.clientX,pressClientY:e.clientY,moved:false};
+    curveHoverIndex=selectedIndex;drawCurve();
   };
   curve.onpointermove=e=>{
-    if(!curvePointer||!curve.hasPointerCapture(e.pointerId))return;const next=pos(e),x=next.index/256;let target;
+    if(!curvePointer){const nextHover=e.pointerType==='touch'?-1:nearestCurveAnchor(e);if(nextHover!==curveHoverIndex){curveHoverIndex=nextHover;drawCurve();}curve.style.cursor=curveHoverIndex>=0?'grab':'crosshair';return;}
+    if(curvePointer.pointerId!==e.pointerId)return;e.preventDefault();
+    if(Math.hypot(e.clientX-curvePointer.pressX,e.clientY-curvePointer.pressClientY)>2)curvePointer.moved=true;
+    const next=pos(e),x=next.index/256;let target;
     if(curvePointer.mode==='point'){
-      const pts=curvePointer.points.map(p=>p.slice()),i=curvePointer.anchorIndex,lo=i>0?pts[i-1][0]+.01:0,hi=i<pts.length-1?pts[i+1][0]-.01:1,xx=Math.max(lo,Math.min(hi,x)),yy=Math.max(i>0?pts[i-1][1]:0,Math.min(i<pts.length-1?pts[i+1][1]:1,next.value));pts[i]=[xx,yy];
+      const pts=curvePointer.points.map(p=>p.slice()),i=curvePointer.anchorIndex,lo=i>0?pts[i-1][0]+.01:0,hi=i<pts.length-1?pts[i+1][0]-.01:1,xx=Math.max(lo,Math.min(hi,x+curvePointer.grabOffsetX)),yy=Math.max(i>0?pts[i-1][1]:0,Math.min(i<pts.length-1?pts[i+1][1]:1,next.value+curvePointer.grabOffsetY));pts[i]=[xx,yy];
       target=curvePointTarget(curvePointer.display,curvePointer.points,i,xx,yy);state.curveAnchors[state.active][state.channel]=pts;
     }else target=curveBodyTarget(curvePointer.display,curvePointer.points,curvePointer.grabX,curvePointer.grabY+next.value-curvePointer.pressY);
     if(state.channel===0)currentSlot().masterCurve=curvePointer.native.slice();else currentSlot().curves[state.channel-1]=curvePointer.native.slice();applyRelativeCurve(currentSlot(),state.natural,state.channel,target,curvePointer.display,state.curveProfiles);state.curveDisplays[state.active][state.channel]=target.slice();drawCurve();queueRender();
   };
-  const endCurve=e=>{if(curve.hasPointerCapture(e.pointerId))curve.releasePointerCapture(e.pointerId);curvePointer=null;persist();};curve.onpointerup=endCurve;curve.onpointercancel=endCurve;
-  curve.ondblclick=e=>{e.preventDefault();addCurveAnchor(e);};
-  curve.oncontextmenu=e=>{e.preventDefault();const display=curveView(),points=ensureCurvePoints(display),index=nearestCurveAnchor(e);if(index>0&&index<points.length-1){points.splice(index,1);persist();drawCurve();}};
+  const endCurve=e=>{const active=curvePointer;if(!active||active.pointerId!==e.pointerId)return;curvePointer=null;if(curve.hasPointerCapture(e.pointerId))curve.releasePointerCapture(e.pointerId);persist();if(e.type==='pointerup'&&active.pointerType==='touch'&&!active.createdAnchor&&!active.moved&&active.mode==='point'&&active.anchorIndex>0&&active.anchorIndex<active.points.length-1)curveLastTap={index:active.anchorIndex,time:performance.now(),x:e.clientX,y:e.clientY};else curveLastTap=null;};curve.onpointerup=endCurve;curve.onpointercancel=endCurve;curve.onlostpointercapture=e=>{if(curvePointer?.pointerId===e.pointerId){curvePointer=null;persist();}};
+  curve.oncontextmenu=e=>{e.preventDefault();const index=nearestCurveAnchor(e,32);removeCurveAnchor(index);};
   $('cameraModeBtn').onclick=()=>{state.previewMode='camera';refreshControls();queueRender();};$('lutModeBtn').onclick=()=>{if(!currentSlot().sourceLut)return notify('当前滤镜没有保留原始 CUBE');state.previewMode='lut';refreshControls();queueRender();};
   $('toggleCompare').onclick=()=>{state.compareMode=(state.compareMode+1)%3;persist();refreshControls();queueRender();};
   $('exportScriptBtn').onclick=()=>exportCameraScript();
