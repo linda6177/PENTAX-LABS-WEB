@@ -1,5 +1,7 @@
 # Pentax Labs Web
 
+**在线使用：** [打开 Pentax Labs Web 编辑器](https://linda6177.github.io/PENTAX-LABS-WEB/)
+
 Pentax Labs 的浏览器版。桌面程序仍是算法和机内脚本真源；Web 使用同一生产滤镜库、P317/DCU5 显示模型、CP ROM 数据与相机运行模板。
 
 ## 当前功能
