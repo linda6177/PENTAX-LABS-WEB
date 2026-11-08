@@ -1,11 +1,11 @@
 import {
-  WHITE, cloneSlot, slotFromFactory, parseCube, evaluateCube, fitCubeQuick,
+  WHITE, cloneSlot, slotFromFactory, parseCube, evaluateCube, fitCubeQuick, normalizeRows,
   prepareRelativeProxy, applyPreparedRelative, displayMatrix, setDisplayMatrix,
   relativeCurve, applyRelativeCurve, applyColorControls, configureDisplayKernel, adaptSlotToIstd,
   canonicalNaturalSlot,
 } from './engine.js';
 import {
-  loadBuiltinRuntime, compileCameraScript, compileCameraScriptFiles, compileIstdFiles,
+  loadBuiltinRuntime, readRuntimeFiles, validateR367, compileCameraScript, compileCameraScriptFiles, compileIstdFiles,
   buildFocusZip, buildFocusFiles, base64Bytes, zipStore,
 } from './runtime.js';
 import {LANGUAGE_OPTIONS, resolveLanguage, tr as i18nTr} from './i18n.js';
@@ -45,7 +45,7 @@ const ACCENTS=['#3178DF','#4E89B1','#A0A0A8','#56AA91','#AA80C7','#C18A5D'];
 const GUIDE_SECTIONS=[
   ['基础操作','左侧单击原厂滤镜，将其应用到当前顶部滤镜槽。顶部有三个可独立启用的槽；单击槽位切换当前编辑对象，勾选圆点决定该槽是否导出。右侧“色彩矩阵 / 通道曲线”只编辑当前槽。底部相机型号决定最终导出格式，*ist D 与 K-1/K-1 II 的参数结构不同。','Basic Controls','Click a factory filter on the left to apply it to the active top slot. The three top slots can be enabled independently; click a slot to edit it and use the round check control to include or exclude it from export. Color Matrix and Tone Curves affect only the active slot. The camera model at the bottom determines the final export format; *ist D uses a different parameter structure from K-1/K-1 II.'],
   ['滤镜管理与重命名','用户滤镜由导入 .cube 产生并保存在浏览器本地。用户滤镜可删除，顶部槽位名称可双击修改。左侧缩略图始终使用当前色卡或当前照片同步渲染，因此换照片后整列预览会一起更新。刷新按钮只重绘列表，不会重新拟合或修改参数。','Filters & Renaming','User filters are created by importing .cube files and are stored locally in the browser. User filters can be deleted and top-slot names can be renamed by double-clicking. Left-side thumbnails always render from the current chart or photo, so the whole list updates when the preview photo changes. Refresh only redraws the list; it does not refit or modify parameters.'],
-  ['LUT 导入与导出','导入 .cube 后使用当前 R367 拟合流程转换为机内 Matrix + RGB Gamma；Web 与桌面使用 canonical Natural、25³ 全色域验证和同一前向模型。显示的主色差是最终拟合验证值，独立复核值只用于交叉检查。复杂 3D LUT 受机内参数自由度限制，不能保证无损还原。','LUT Import & Export','Imported .cube files use the current R367 fitting path to produce camera Matrix + RGB Gamma. Web and desktop share canonical Natural, 25³ full-gamut validation and the same forward model. The headline error is the final-fit validation; an independent check is secondary. Complex 3D LUTs cannot always be reproduced losslessly with the camera parameter surface.'],
+  ['LUT 导入与导出','导入 .cube 后，K-1 II 使用 R369 原生 Matrix/Gamma 拟合；K-1 与 *ist D 保留各自的 P317 显示域路线。R369 Web 与桌面共享 12k Natural 相机校准样本、原生矩阵基底和暗部加权目标；浏览器使用 JS 分块优化器，桌面使用 SciPy 优化器，因此矩阵可逐项一致，Gamma 仍允许小幅数值差异。软件评分是模型预测，不等同于机内 JPEG 实拍色差。复杂 3D LUT 受机内参数自由度限制，不能保证无损还原。','LUT Import & Export','Imported .cube files use the R369 native Matrix/Gamma model on K-1 II; original K-1 and *ist D retain their P317 display-domain paths. Web and desktop share the 12k Natural camera-calibration samples, native matrix basis and dark-aware objective. The browser uses a JavaScript block optimizer while desktop uses SciPy, so Q8 matrices match while small Gamma-value differences may remain. Software scores are model predictions, not measured in-camera JPEG errors. Complex 3D LUTs cannot always be reproduced losslessly with the camera parameter surface.'],
   ['色彩矩阵与 Gamma 曲线','以 Natural 为相对基准。曲线显示采用和桌面端相同的“平滑意图”模型：原厂 256 个物理节点不会直接变成 256 个可见控制点，默认只显示黑白端点。像 Lightroom 一样单击曲线添加控制点，并在同一次拖动中调整；已有点有更大的触控命中范围。Alt+拖动曲线主体可做大范围平滑形变；“加点”可在图表任意位置创建节点，右键删除，触屏双击节点删除。后台仍把相对变化写回原有 256 点机内 Gamma。','Color Matrix & Gamma Curves','Natural is the relative reference. The curve uses the same smooth-intent model as desktop: the 256 physical factory nodes are not exposed as 256 visible handles, and only black/white endpoints appear by default. Like Lightroom, click the curve to add a control point and keep dragging in the same gesture; handles have generous touch targets. Alt-drag the curve body for broad smooth shaping, or use Add point anywhere in the graph. Right-click removes a point; double-tap removes one on touchscreens. Relative changes still map back to the original 256 camera Gamma nodes.'],
   ['照片预览与对比','网页启动默认显示色卡。单击“照片”选择本地 JPG/PNG/WebP/AVIF，照片只在浏览器本地解码，不会上传；左侧滤镜缩略图与主预览使用同一张照片。LUT/机内切换用于比较原始 CUBE 与拟合后的机内参数；对比按钮依次切换全显示、左右、上下。照片区域仍支持把 .cube 或照片直接拖入，但不再显示常驻遮挡提示。','Photo Preview & Compare','The web app starts with the color chart. Photo opens a local JPG/PNG/WebP/AVIF and never uploads it; left-side filter thumbnails use the same source as the main preview. LUT/Camera compares the original CUBE with the fitted camera parameters, while Compare cycles Full, Left/Right and Top/Bottom. The photo area still accepts dragged .cube files or photos, but the permanent overlay hint has been removed.'],
   ['相机脚本导出与注意事项','自定义滤镜页底部选择真实相机型号。K-1 II 使用独立 P286 运行时，K-1 使用独立 R29 运行时；两者都导出 Natural 相对矩阵映射后的 Q8/Q13 与三路 U14。*ist D 使用 signed10 Q8 3×3 Matrix 加一条共享 4096 点 U8 Gamma，所以复杂彩色 LUT 的理论误差可能明显更高。每次点击导出都会先让你选择 SD 卡根目录或测试目录，再直接写入。','Camera Script Export & Notes','Choose the real camera model at the bottom of Custom Filters. K-1 II uses its own P286 runtime and K-1 uses the separate R29 runtime; both export Natural-relative matrix mapping as Q8/Q13 plus three U14 channels. *ist D uses a signed10 Q8 3×3 Matrix plus one shared 4096-node U8 Gamma, so complex color LUTs can have higher model error. Every export first asks for the SD-card root or a test folder and then writes directly.'],
@@ -197,6 +197,62 @@ function hydrateUserSources(){
   }
 }
 
+const R369_WEB_PROFILE='R369-k1ii-native-darkaware-js-block-v1';
+const P317_WEB_PROFILE='P317-display-relative-darkaware-web';
+function userFitIsCurrent(slot,model){
+  const profile=model==='k1ii'?R369_WEB_PROFILE:P317_WEB_PROFILE;
+  return slot?.camera_model===model&&slot?.fit_report?.fit_profile===profile;
+}
+function fitUserItemForCamera(item,model,force=false){
+  if(!item?.sourceLut){
+    let fallback=cloneSlot(item?.slot||state.natural);
+    if(model==='istd'&&fallback.camera_model!=='istd')fallback=adaptSlotToIstd(fallback,state.natural);
+    else if(fallback.camera_model&&fallback.camera_model!==model){fallback=cloneSlot(state.natural);fallback.name=item?.slot?.name||item?.name||'CUST';}
+    fallback.camera_model=model;fallback.user_preset_id=item?.id||fallback.user_preset_id;return fallback;
+  }
+  if(!force&&userFitIsCurrent(item.slot,model))return {...cloneSlot(item.slot),sourceLut:item.sourceLut,user_preset_id:item.id};
+  const fitModel=model==='istd'?'k1':model;
+  let fitted=fitCubeQuick(item.sourceLut,canonicalNaturalSlot(fitModel),fitModel);
+  if(model==='istd')fitted=adaptSlotToIstd(fitted,state.natural);
+  fitted.name=String(item.slot?.name||item.name||fitted.name||'CUST').trim().slice(0,12);
+  fitted.user_preset_id=item.id;fitted.sourceLut=item.sourceLut;
+  item.slot=stripSource(fitted);item.fit_camera_model=model;
+  return fitted;
+}
+function mergeRefittedSlot(newBase,oldBase,active){
+  const merged=cloneSlot(newBase),reference=state.curveProfiles?.natural_matrix_q8||null;
+  const display=(slot,matrix)=>displayMatrix({...slot,matrix},state.natural,reference);
+  const addDisplayDelta=(base,old,edited)=>normalizeRows(base.map((row,r)=>row.map((value,c)=>Math.round(value+edited[r][c]-old[r][c]))));
+  const oldMatrix=display(oldBase,oldBase.matrix),editedMatrix=display(active,active.matrix),newMatrix=display(newBase,newBase.matrix);
+  setDisplayMatrix(merged,state.natural,addDisplayDelta(newMatrix,oldMatrix,editedMatrix),reference);
+  const oldColor=display(oldBase,oldBase.colorBaseMatrix||oldBase.matrix),editedColor=display(active,active.colorBaseMatrix||active.matrix),newColor=display(newBase,newBase.colorBaseMatrix||newBase.matrix);
+  const colorSlot=cloneSlot(merged);setDisplayMatrix(colorSlot,state.natural,addDisplayDelta(newColor,oldColor,editedColor),reference);merged.colorBaseMatrix=colorSlot.matrix.map(row=>row.slice());
+  const mergeCurve=(base,old,edited)=>{
+    if(!Array.isArray(old)||!Array.isArray(edited)||old.length!==base.length||edited.length!==base.length)return base.slice();
+    const out=base.map((value,i)=>Math.max(0,Math.min(WHITE,Math.round(value+edited[i]-old[i]))));
+    for(let i=1;i<out.length;i++)out[i]=Math.max(out[i],out[i-1]);return out;
+  };
+  merged.curves=merged.curves.map((curve,c)=>mergeCurve(curve,oldBase.curves?.[c]||curve,active.curves?.[c]||curve));
+  merged.masterCurve=mergeCurve(merged.masterCurve,oldBase.masterCurve||merged.masterCurve,active.masterCurve||merged.masterCurve);
+  for(const key of ['name','enabled','brightness_ev','contrast','color_hue','color_sat'])if(active[key]!==undefined)merged[key]=active[key];
+  merged.user_preset_id=newBase.user_preset_id;merged.sourceLut=newBase.sourceLut;return merged;
+}
+async function migrateCachedUserFilters(){
+  let upgraded=0,missing=0;
+  for(const item of state.users.values()){
+    if(userFitIsCurrent(item.slot,state.cameraModel))continue;
+    if(!item.sourceLut){missing++;continue;}
+    const fitted=fitUserItemForCamera(item,state.cameraModel,true);if(state.db)await dbPut(item);
+    for(let i=0;i<3;i++)if(state.bases[i]?.user_preset_id===item.id){
+      state.slots[i]=mergeRefittedSlot(fitted,state.bases[i],state.slots[i]);state.bases[i]=cloneSlot(fitted);
+      state.curveAnchors[i]=[[],[],[],[]];state.curveDisplays[i]=[null,null,null,null];
+    }
+    upgraded++;
+  }
+  if(upgraded){persist();refresh();notify(`已将 ${upgraded} 个旧版用户滤镜重新拟合为当前 ${state.cameraModel==='k1ii'?'R369':'机型'} 算法`);}
+  if(missing&&state.cameraModel==='k1ii')notify(`${missing} 个旧滤镜没有保留原始 CUBE，无法自动升级；重新导入原始 CUBE 即可使用 R369`);
+}
+
 function factoryRow(key){
   const raw=String(key||'').replace(/^istd:/,'');
   return state.factoryRows.find(row=>row.key===raw)||null;
@@ -213,13 +269,15 @@ function switchCameraModel(model){
   if(!['istd','k1','k1ii'].includes(model)||model===state.cameraModel)return;
   const previous=state.slots.map(cloneSlot),previousBases=state.bases.map(cloneSlot);
   state.cameraModel=model;rebuildFactorySlots();
+  for(const item of state.users.values()){
+    fitUserItemForCamera(item,model,true);
+    if(item.sourceLut&&state.db)void dbPut(item).catch(error=>console.warn('User filter fit cache update failed',error));
+  }
   state.slots=previous.map((slot,index)=>{
     let next=null;
     if(slot.user_preset_id){
-      const item=state.users.get(slot.user_preset_id),source=item?.slot?cloneSlot(item.slot):cloneSlot(slot);
-      if(model==='istd')next=adaptSlotToIstd(source,state.natural);
-      else {next=source;next.camera_model=model;if(String(next.preset_key).startsWith('istd:'))next.preset_key='k12:natural';}
-      next.user_preset_id=slot.user_preset_id;next.sourceLut=item?.sourceLut||slot.sourceLut||null;
+      const item=state.users.get(slot.user_preset_id),source=item?fitUserItemForCamera(item,model):cloneSlot(slot);
+      next=source;next.user_preset_id=slot.user_preset_id;next.sourceLut=item?.sourceLut||slot.sourceLut||null;
     }else{
       const row=factoryRow(slot.preset_key);next=row?slotFromFactory(row,model):cloneSlot(state.natural);
     }
@@ -288,7 +346,7 @@ function renderFilterList(){
     const sub=document.createElement('small');sub.textContent=factory?(
       (state.cameraModel==='istd'?'*ist D · Matrix + shared 4096 Gamma':'K12 · Matrix + RGB Gamma')+
       ' · ΔE00 '+(Number.isFinite(slot.fit_report?.mean_de00)?slot.fit_report.mean_de00.toFixed(2):'—')):(
-      'R367 · ΔE00 '+(Number.isFinite(item.slot.fit_report?.de00_mean)?item.slot.fit_report.de00_mean.toFixed(2):'—')+
+      (item.slot.fit_report?.fit_profile?.startsWith('R369-k1ii-native-darkaware-js-')?'R369 原生模型':item.slot.fit_report?.fit_profile?.startsWith('P317-')?'P317 显示域':'旧版拟合')+' · ΔE00 '+(Number.isFinite(item.slot.fit_report?.de00_mean)?item.slot.fit_report.de00_mean.toFixed(2):'—')+
       ' · RGB '+(Number.isFinite(item.slot.fit_report?.rgb_mae_255)?item.slot.fit_report.rgb_mae_255.toFixed(2)+'/255':'—'));
     copy.append(title,sub);b.append(thumb,copy);
     if(selected){const indicator=document.createElement('span');indicator.className='filter-indicator';b.appendChild(indicator);}
@@ -404,12 +462,15 @@ function refreshControls(){
 }
 function refresh(){renderSlots();renderFilterList();refreshControls();queueRender();}
 function applyPreset(identifier,factory){
-  let selected=factory?state.factorySlots.get(identifier):state.users.get(identifier)?.slot;
-  if(!selected)return;selected=cloneSlot(selected);if(!factory){const item=state.users.get(identifier);selected=state.cameraModel==='istd'?adaptSlotToIstd(selected,state.natural):selected;selected.sourceLut=item?.sourceLut||null;selected.user_preset_id=item.id;}
+  const item=factory?null:state.users.get(identifier);
+  let selected=factory?state.factorySlots.get(identifier):item?fitUserItemForCamera(item,state.cameraModel):null;
+  if(!selected)return;selected=cloneSlot(selected);if(!factory){if(item.sourceLut&&state.db)void dbPut(item).catch(error=>console.warn('User filter fit cache update failed',error));selected.sourceLut=item?.sourceLut||null;selected.user_preset_id=item.id;}
   const sourceName=factory?selected.name:(state.users.get(identifier)?.name||selected.name);
   selected.name=String(sourceName||'CUST').trim().slice(0,6);
   selected.enabled=currentSlot().enabled;selected.camera_model=state.cameraModel;normalizeSlotShape(selected);
   state.slots[state.active]=selected;state.bases[state.active]=cloneSlot(selected);state.curveAnchors[state.active]=[[],[],[],[]];state.curveDisplays[state.active]=[null,null,null,null];if(state.previewMode==='lut'&&!selected.sourceLut)state.previewMode='camera';persist();refresh();
+  if(!factory&&state.cameraModel==='k1ii'&&!selected.fit_report?.fit_profile?.startsWith('R369-k1ii-native-darkaware-js-'))
+    notify('该滤镜保留旧版拟合参数；请重新导入原始 CUBE 使用新的 K-1 II 原生拟合。');
 }
 async function deleteUser(id){
   const item=state.users.get(id);if(!item)return;await dbDelete(id);state.users.delete(id);
@@ -445,9 +506,9 @@ function renderPreview(){
 async function importFiles(files){
   const cubes=Array.from(files).filter(f=>/\.cube$/i.test(f.name));if(!cubes.length)return;
   for(const file of cubes){try{
-    setStatus('拟合 LUT：'+file.name);await new Promise(r=>requestAnimationFrame(r));const cube=parseCube(await file.text(),file.name),fitNatural=canonicalNaturalSlot('k1ii'),fitted=fitCubeQuick(cube,fitNatural,state.cameraModel==='istd'?'k1ii':state.cameraModel),id=cube.id.replace('lut:','');
-    fitted.name=String(cube.name||file.name.replace(/\.cube$/i,'')).trim().slice(0,6);fitted.user_preset_id=id;fitted.sourceLut=cube;normalizeSlotShape(fitted);const item={id,name:cube.name,slot:stripSource(fitted),sourceLut:cube,importedAt:Date.now()};
-    state.users.set(id,item);await dbPut(item);const active=state.cameraModel==='istd'?adaptSlotToIstd(fitted,state.natural):fitted;active.user_preset_id=id;active.sourceLut=cube;state.slots[state.active]=cloneSlot(active);state.bases[state.active]=cloneSlot(active);state.curveAnchors[state.active]=[[],[],[],[]];state.curveDisplays[state.active]=[null,null,null,null];state.tab='user';state.previewMode='camera';persist();notify('已导入「'+cube.name+'」 · ΔE00 '+fitted.fit_report.de00_mean.toFixed(2)+' · RGB '+fitted.fit_report.rgb_mae_255.toFixed(2)+'/255');
+    setStatus('拟合 LUT：'+file.name);await new Promise(r=>requestAnimationFrame(r));const cube=parseCube(await file.text(),file.name),fitModel=state.cameraModel==='istd'?'k1':state.cameraModel,fitted=fitCubeQuick(cube,canonicalNaturalSlot(fitModel),fitModel),id=cube.id.replace('lut:','');
+    const active=state.cameraModel==='istd'?adaptSlotToIstd(fitted,state.natural):fitted;active.name=String(cube.name||file.name.replace(/\.cube$/i,'')).trim().slice(0,6);active.user_preset_id=id;active.sourceLut=cube;normalizeSlotShape(active);
+    const item={id,name:cube.name,slot:stripSource(active),sourceLut:cube,importedAt:Date.now()};state.users.set(id,item);await dbPut(item);state.slots[state.active]=cloneSlot(active);state.bases[state.active]=cloneSlot(active);state.curveAnchors[state.active]=[[],[],[],[]];state.curveDisplays[state.active]=[null,null,null,null];state.tab='user';state.previewMode='camera';persist();notify('已导入「'+cube.name+'」 · '+(active.fit_report.fit_profile?.startsWith('R369-k1ii-native-darkaware-js-')?'R369 原生模型':'P317 显示域')+' · 模型 ΔE00 '+active.fit_report.de00_mean.toFixed(2));
   }catch(e){console.error(e);notify(file.name+'：'+(e.message||e));}}
   $('lutFile').value='';refresh();setStatus('就绪');
 }
@@ -483,12 +544,22 @@ async function writeFilesToDirectory(root,files){
     await writer.write(data instanceof Uint8Array?data:new TextEncoder().encode(String(data)));await writer.close();
   }
 }
+async function chooseR367Runtime(){
+  if(!window.showDirectoryPicker) throw Error('请使用支持选择文件夹的浏览器，选择原始 R367 的 script 文件夹');
+  const root=await window.showDirectoryPicker({id:'pentax-labs-r367-base',mode:'read'});
+  const script=root.name.toLowerCase()==='script'?root:await root.getDirectoryHandle('script');
+  const t=await script.getDirectoryHandle('T');
+  const files=await Promise.all([t.getFileHandle('R.BIN').then(h=>h.getFile()),t.getFileHandle('P.BIN').then(h=>h.getFile()),script.getFileHandle('startup.ttl').then(h=>h.getFile())]);
+  const base=await readRuntimeFiles(files,'k1ii');state.runtimeBases.k1ii=base;
+  if(state.db) await dbPut({id:'__r367_k1ii',type:'runtime-base',base});
+  return base;
+}
 async function exportCameraScript(camera=state.cameraModel){
   try{
     let files;
     if(camera==='istd')files=compileIstdFiles(currentSlot());
     else {
-      const base=state.runtimeBases[camera];if(!base)throw Error('当前机型内置运行时尚未加载');
+      const base=state.runtimeBases[camera]||(camera==='k1ii'?await chooseR367Runtime():null);if(!base)throw Error('当前机型运行时尚未加载');
       files=compileCameraScriptFiles(state.slots,camera,base);
     }
     if(window.showDirectoryPicker){
@@ -708,16 +779,18 @@ async function start(){
   installEvents();
   try{
     setStatus(tr('正在加载','Loading'));await loadLibraries();initializeSlots();rebuildFactorySlots();
-    const [k1iiRuntime,k1Runtime]=await Promise.all([loadBuiltinRuntime('k1ii'),loadBuiltinRuntime('k1')]);
-    state.runtimeBases.k1ii=k1iiRuntime;state.runtimeBases.k1=k1Runtime;
+    const [k1iiRuntime,k1Runtime]=await Promise.allSettled([loadBuiltinRuntime('k1ii'),loadBuiltinRuntime('k1')]);
+    state.runtimeBases.k1ii=k1iiRuntime.status==='fulfilled'?k1iiRuntime.value:null;
+    state.runtimeBases.k1=k1Runtime.status==='fulfilled'?k1Runtime.value:null;
     const hash=location.hash.replace(/^#/,'');if(FEATURES.some(x=>x[0]===hash))state.currentPage=hash;
     $('cameraModel').value=state.cameraModel;chartSource();setupEngineering();renderCpUi();refresh();goPage(state.currentPage);renderSettings();translateStatic(document.body);persist();
     try{
       state.db=await openDatabase();for(const item of await dbAll()){
         if(item?.type==='sd-root'&&item.handle)state.sdRoot=item.handle;
+        else if(item?.id==='__r367_k1ii'&&item.base){try{await validateR367(item.base.p,item.base.r,item.base.ttl);state.runtimeBases.k1ii=item.base;}catch(e){console.warn('Saved R367 base rejected',e);}}
         else if(item?.id&&item.slot)state.users.set(item.id,item);
       }
-      hydrateUserSources();refresh();persist();
+      hydrateUserSources();await migrateCachedUserFilters();hydrateUserSources();refresh();persist();
     }catch(e){console.warn('IndexedDB unavailable',e);notify('浏览器持久存储不可用，本次会话仍可使用');}
     let ready=tr('就绪','Ready');
     if(state.sdRoot&&await state.sdRoot.queryPermission?.({mode:'readwrite'})==='granted')

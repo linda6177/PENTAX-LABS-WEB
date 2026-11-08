@@ -33,6 +33,7 @@ export async function readRuntimeFiles(fileList,cameraModel) {
   const expected=cameraModel==='k1'?'K1N29':'K12EN81';
   if(p.data.length!==4096||r.data.length<0x16B48||!dec.decode(ttl.data).includes(expected))
     throw Error('runtime verification set does not match '+expected);
+  if(cameraModel==='k1ii') await validateR367(p.data,r.data,ttl.data);
   return {cameraModel,p:p.data,r:r.data,ttl:ttl.data,loadedAt:Date.now()};
 }
 
@@ -137,11 +138,11 @@ async function sha256(bytes){
 
 const RUNTIME_SHA={
   k1ii:{
-    'P.BIN':'5c59598cad7077a6b6f28407d82751ef1a568c78ec2ccdc7f12d2359095cccd9',
-    'R.BIN':'5ea9ab6e862edb4a7eb215e48859c8f37a6e67ec9658a7f4eadfe6d5ca4186cf',
+    'P.BIN':'7381e73b77de6295ed48d95a6d8e67d354687d6ba9845b8edf9c04901b684cd9',
+    'R.BIN':'91daeed82b11e143164f9b80bd035df83468ede83f6dd6d16413e46d1480f452',
     // GitHub Pages serves text files with LF after Git normalization. Pin the
     // LF-normalized script identity, then restore CRLF before writing to SD.
-    'startup.ttl':'08078abd909311fefb3627d8a5a632016e5b98f30b9d6225c9c5dd19038d3fb8',
+    'startup.ttl':'1b3b05d4dfb44c20ab5393c50e3c82d160e7fe95a9b18a51682d975ca8ae6631',
   },
   k1:{
     'P.BIN':'c5cfb69843caf792f74ba14d38ae0456e99e64d342fa6ee1f989ab47fe7e47b2',
@@ -163,6 +164,14 @@ function crlfNormalized(bytes){
   const lf=lfNormalized(bytes),out=[];
   for(const value of lf){if(value===10)out.push(13);out.push(value);}
   return new Uint8Array(out);
+}
+
+export async function validateR367(p,r,ttl){
+  const hashes=await Promise.all([sha256(p),sha256(r),sha256(lfNormalized(ttl))]);
+  if(p.length!==4096||r.length!==0x1be00||hashes[0]!==RUNTIME_SHA.k1ii['P.BIN']||
+      hashes[1]!==RUNTIME_SHA.k1ii['R.BIN']||hashes[2]!==RUNTIME_SHA.k1ii['startup.ttl'])
+    throw Error('K-1 II 需要原始 R367 稳定版 script 文件夹（包含 T/R.BIN、T/P.BIN 和 startup.ttl）；旧版底座不支持此导出');
+  return true;
 }
 
 export async function loadBuiltinRuntime(cameraModel) {
@@ -189,12 +198,15 @@ export function compileCameraScriptFiles(slots,cameraModel,base) {
   const active=slots.filter(s=>s.enabled);
   if(active.length<1||active.length>3) throw Error('请启用 1～3 个自定义滤镜槽');
   const runtime=new Uint8Array(base.r); const rv=new DataView(runtime.buffer);
+  if(cameraModel==='k1ii' && (runtime.length!==0x1be00||rv.getUint32(0x11f9c,true)!==0xea002517||rv.getUint32(0x164ac,true)!==0xea0013d3))
+    throw Error('K-1 II 运行底座缺少 R367 Natural 矩阵路由，请重新选择稳定版 R367 script 文件夹');
   for(let i=0;i<active.length;i++) {
     const slot=active[i];
     const requested=hardwareForSlot(slot);
     const compiled=reverseCompose(requested);
     const matrixAt=META.matrices[i];
     compiled.source.flat().forEach((v,n)=>put16(rv,matrixAt+n*2,v));
+    if(cameraModel==='k1ii') compiled.source.flat().forEach((v,n)=>put16(rv,0x1bd80+i*32+n*2,v));
     const gammaAt=GAMMA+i*1536, curves=effectiveCurves(slot);
     for(let c=0;c<3;c++) for(let n=0;n<256;n++) {
       const value=Math.max(0,Math.min(WHITE,Math.round(curves[c][n])));

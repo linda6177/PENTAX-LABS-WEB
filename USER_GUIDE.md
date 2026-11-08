@@ -70,6 +70,8 @@
 
 LUT 拟合是将外部变换近似映射到相机可控参数，不是把完整 3D LUT 原样写进相机。局部色相变化、复杂色彩分离和高维变换可能出现拟合误差。软件拟合评分衡量的是拟合模型本身，不等同于机内 JPEG 与桌面预览的最终色差。
 
+K-1 II 使用 R369 原生 Matrix/Gamma 模型和 12k Natural 相机校准样本；K-1 与 *ist D 仍使用各自的 P317 路线。Web 端与桌面端共享 R369 校准数据、原生矩阵基底和暗部加权目标，但分别使用 JavaScript 分块优化器与 SciPy 优化器，因此 Q8 矩阵可以逐项一致，Gamma 量化值仍可能有小幅差异。旧版浏览器用户滤镜若保留了原始 CUBE，会在启动时自动重新拟合；没有原始 CUBE 的旧滤镜需要重新导入。
+
 ## 5. 相机机型与脚本导出
 
 当前自定义滤镜脚本导出器提供三种机型配置：
@@ -78,11 +80,11 @@ LUT 拟合是将外部变换近似映射到相机可控参数，不是把完整 
 |---|---|
 | PENTAX *ist D | signed 3×3 Matrix 与共享 4096 点 Gamma；不支持三路独立 RGB Gamma |
 | PENTAX K-1 | R29 独立三槽运行底座；机身三个新槽的 Info 参数不支持独立保存 |
-| PENTAX K-1 II | P286 独立运行底座；不可与原版 K-1 的 R29 文件混用 |
+| PENTAX K-1 II | P286 架构的 R367 稳定运行底座；LUT 导入使用 R369 原生 Matrix/Gamma 拟合；不可与原版 K-1 的 R29 文件混用 |
 
 K12 是项目内部对 K-1 II 平台研究线的简称，公开界面统一使用 K-1 II。选择正确机型后，选择要写入的槽位并导出。程序会按目标平台生成所需资源；不要自行替换不同机型的运行时文件。
 
-**实机验证原则：** 原版 K-1 的槽位图标、切换、拍摄和重启已完成实机验证；K-1 II 使用独立 P286 底座。每一组新编辑参数仍需在目标机身上检查槽位显示、切换、拍摄和重启后的行为。不要把“脚本成功导出”理解为“所有机型和参数组合都已实机验证”。
+**实机验证原则：** 原版 K-1 的槽位图标、切换、拍摄和重启已完成实机验证；K-1 II 使用独立 P286/R367 底座。R369 是 K-1 II 的原生 Matrix/Gamma LUT 拟合模型，Web 使用 JS 分块优化器，桌面使用 SciPy 优化器，两者共用校准样本与目标函数但 Gamma 数值可能存在小幅差异。每一组新编辑参数仍需在目标机身上检查槽位显示、切换、拍摄和重启后的行为。不要把“脚本成功导出”理解为“所有机型和参数组合都已实机验证”。
 
 ## 6. 正负逆冲
 
@@ -183,6 +185,6 @@ K-3 III Monochrome 不在本功能适配范围。不同机型使用的入口文�
 
 Pentax Labs is an independent toolkit for Pentax camera users. The Web edition provides browser-based filter editing, photo preview, matrix and curve controls, LUT/CUBE fitting, cross-processing recipes, engineering-entry resources, Four Seasons script packages, and *ist D utilities. The Windows desktop edition adds a fuller local file workflow and direct folder export.
 
-Custom-filter script profiles currently cover the *ist D, original K-1 (R29 runtime), and K-1 II (P286 runtime). These camera runtimes are not interchangeable. Four Seasons packages target the K-1, K-1 II, colour K-3 III, and KF; the K-3 III Monochrome is excluded. Engineering resources cover additional models, but each entry has its own evidence and firmware scope. A model appearing in the database does not mean every firmware revision has been camera-tested.
+Custom-filter script profiles currently cover the *ist D, original K-1 (R29 runtime), and K-1 II (P286/R367 runtime). K-1 II LUT imports use the R369 native Matrix/Gamma fit; Web and desktop share its calibration basis, with a JavaScript block optimizer in Web and SciPy on desktop. These camera runtimes are not interchangeable. Four Seasons packages target the K-1, K-1 II, colour K-3 III, and KF; the K-3 III Monochrome is excluded. Engineering resources cover additional models, but each entry has its own evidence and firmware scope. A model appearing in the database does not mean every firmware revision has been camera-tested.
 
 Always select the exact camera model, back up the SD card, export to the card root, safely eject it, and follow the model-specific instructions. A successful file export does not prove that a camera feature has been activated. Verify the camera menu and actual RAW/JPEG captures. Complex 3D LUTs cannot be losslessly represented by a camera matrix and tone curves. Pentax Labs is unofficial and is not affiliated with or endorsed by RICOH IMAGING or PENTAX.

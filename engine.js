@@ -1,3 +1,4 @@
+import {fitR369, predictR369} from './r369_solver.js';
 /* Pentax Labs Web engine.
  * Browser-side colour/model helpers. Camera runtime templates are loaded
  * separately by runtime.js so the colour engine stays deterministic.
@@ -507,11 +508,13 @@ function prepareIstd(slot){
 
 export function prepareRelativeProxy(slot, naturalSlot) {
   if(slot.camera_model==='istd'&&ISTD_DISPLAY_INDEX)return prepareIstd(slot);
+  if(slot.preset_key==='r369_native')return {kind:'r369',matrix:slot.matrix,curves:effectiveCurves(slot)};
   if(DISPLAY_KERNEL)return prepareP317(slot);
   return {kind:'legacy',style:prepareStage(slot),natural:prepareStage(naturalSlot)};
 }
 
 export function applyPreparedRelative(prepared, rgb) {
+  if(prepared.kind==='r369')return predictR369(rgb,prepared.matrix,prepared.curves);
   if(prepared.kind==='p317'){
     const codes=rgb.map(value=>Math.max(0,Math.min(255,Math.round(clamp01(value)*255))));
     const latent=codes.map(code=>Number(DISPLAY_KERNEL.byte_inverse[code]));
@@ -768,6 +771,18 @@ function mixedValues(matrix, samples) {
 }
 
 export function fitCubeQuick(cube, naturalSlot, cameraModel='k1ii') {
+  if(cameraModel==='k1ii'){
+    const fit=fitR369(cube,evaluateCube),slot={name:cube.name,enabled:true,matrix:fit.matrix,
+      colorBaseMatrix:fit.matrix.map(r=>r.slice()),curves:fit.curves,masterCurve:identityCurve(),
+      preset_key:'r369_native',matrix_domain:'native_absolute',camera_model:cameraModel,
+      brightness_ev:0,contrast:0,color_hue:0,color_sat:1,user_preset_id:'',sourceLut:cube};
+    const errors=[],de=[];for(let b=0;b<17;b++)for(let g=0;g<17;g++)for(let r=0;r<17;r++){
+      const rgb=[r/16,g/16,b/16],target=evaluateCube(cube,rgb),pred=predictR369(rgb,fit.matrix,fit.curves);
+      de.push(de00(srgbLab(pred),srgbLab(target)));for(let c=0;c<3;c++)errors.push(Math.abs(pred[c]-target[c])*255);
+    }
+    slot.fit_report={rgb_mae_255:errors.reduce((a,b)=>a+b,0)/errors.length,rgb_p95_255:percentile(errors,.95),rgb_max_255:Math.max(...errors),de00_mean:de.reduce((a,b)=>a+b,0)/de.length,de00_p95:percentile(de,.95),validation_grid:17,fit_profile:'R369-k1ii-native-darkaware-js-block-v1',model:'R369 K-1 II calibrated native Matrix/Gamma model; browser block optimizer on the shared 12k camera-calibration basis; independent of the desktop SciPy optimizer'};
+    return slot;
+  }
   // Fitting must use the canonical desktop Natural control, not the published
   // factory-library Natural preset (which is itself an adapted/rebuilt look).
   naturalSlot=canonicalNaturalSlot(cameraModel);
@@ -822,8 +837,8 @@ export function fitCubeQuick(cube, naturalSlot, cameraModel='k1ii') {
   slot.fit_report = {
     rgb_mae_255: chosen.mae,rgb_p95_255:chosen.p95,rgb_max_255:chosen.max,
     de00_mean:deValues.reduce((a,b)=>a+b,0)/deValues.length,de00_p95:percentile(deValues,.95),
-    validation_grid:25,fit_profile:'R367-darkaware-target-weight-v1-web',
-    model:'Web R367-aligned P317 Natural-relative Q8 + RGB U14 fit',
+    validation_grid:25,fit_profile:'P317-display-relative-darkaware-web',
+    model:'P317 display-relative Q8 + RGB U14 approximation with dark-aware weights; not the R369 calibrated native solver',
   };
   return slot;
 }

@@ -1,17 +1,9 @@
 ; K-1 II 2.51 R51 native installer, reversible RAM patch.
-result=0
-intdim ticks 12
-ti=0
-call tick
-ti=1
-call tick
 native=0
 armed=0
 savedok=0
 fhopen=0
 recovering=0
-message='START R51                                  '
-call mark
 intdim saved 64
 path='C:\script\K12EN81\Q.BIN'
 addr=1080573344
@@ -61,8 +53,6 @@ call dump
 fileopen fh 'C:\script\T\S.BIN' 0
 if fh<0 goto failed
 fhopen=1
-ti=2
-call tick
 fileread fh 255 discard
 if result<>0 goto failed
 fileread fh 1 discard
@@ -70,8 +60,6 @@ if result<>0 goto failed
 fileclose fh
 fhopen=0
 savedok=1
-ti=3
-call tick
 entry=slot+24
 record='C:\script\T\P.BIN               ,   1080573344'
 fileopen mh 'C:\script\T\REG.TXT' 0
@@ -91,349 +79,69 @@ addr=slot
 path='C:\script\K12EN81\Q.BIN'
 guardwant=#160#61#104#64
 call readguard
-ti=4
-call tick
-sprintf2 command 'SYS_reg set %d 4 -382906376' slot+24
+saved[0]=-382906376
+saved[1]=-481296383
+saved[2]=436207662
+saved[3]=-498114516
+saved[4]=-443482112
+saved[5]=-476049408
+saved[6]=-442515280
+saved[7]=-516948164
+saved[8]=-509587456
+saved[9]=-480968704
+saved[10]=-637534170
+saved[11]=-476050943
+saved[12]=-442515300
+saved[13]=-516948164
+saved[14]=-509591552
+saved[15]=-481034240
+saved[16]=167772187
+saved[17]=-509607931
+saved[18]=-509603836
+saved[19]=-476042751
+saved[20]=-442515328
+saved[21]=-516948164
+saved[22]=-509579264
+saved[23]=-509607931
+saved[24]=-442515340
+saved[25]=-516948164
+saved[26]=-480835071
+saved[27]=436207624
+saved[28]=-443285504
+saved[29]=-442560412
+saved[30]=-514850815
+saved[31]=436207622
+saved[32]=-509607930
+saved[33]=-509603836
+saved[34]=-516948172
+saved[35]=-509579264
+saved[36]=-369098750
+saved[37]=-476024605
+saved[38]=-369098752
+saved[39]=-476024604
+saved[40]=-509607932
+saved[41]=-442515400
+saved[42]=-516948164
+saved[43]=-509607929
+saved[44]=-390230024
+saved[45]=-509607931
+saved[46]=-442515428
+saved[47]=-516948164
+saved[48]=-476053278
+saved[49]=-390230024
+saved[50]=-476053279
+saved[51]=-390230024
+saved[52]=1083923864
+saved[53]=1080570312
+saved[54]=1083924148
+saved[55]=1083923900
+saved[56]=-509558772
+saved[57]=1080570508
+for i 0 57
+sprintf2 command 'SYS_reg set %d 4 %d' slot+24+i*4 saved[i]
 sendln command
 if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -481296383' slot+28
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 436207662' slot+32
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -498114516' slot+36
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -443482112' slot+40
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -476049408' slot+44
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -442515280' slot+48
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -516948164' slot+52
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -509587456' slot+56
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -480968704' slot+60
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -637534170' slot+64
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -476050943' slot+68
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -442515300' slot+72
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -516948164' slot+76
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -509591552' slot+80
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -481034240' slot+84
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 167772187' slot+88
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -509607931' slot+92
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -509603836' slot+96
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -476042751' slot+100
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -442515328' slot+104
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -516948164' slot+108
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -509579264' slot+112
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -509607931' slot+116
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -442515340' slot+120
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -516948164' slot+124
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -480835071' slot+128
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 436207624' slot+132
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -443285504' slot+136
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -442560412' slot+140
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -514850815' slot+144
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 436207622' slot+148
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -509607930' slot+152
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -509603836' slot+156
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -516948172' slot+160
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -509579264' slot+164
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -369098750' slot+168
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -476024605' slot+172
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -369098752' slot+176
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -476024604' slot+180
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -509607932' slot+184
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -442515400' slot+188
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -516948164' slot+192
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -509607929' slot+196
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -390230024' slot+200
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -509607931' slot+204
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -442515428' slot+208
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -516948164' slot+212
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -476053278' slot+216
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -390230024' slot+220
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -476053279' slot+224
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -390230024' slot+228
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 1083923864' slot+232
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 1080570312' slot+236
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 1083924148' slot+240
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 1083923900' slot+244
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 -509558772' slot+248
-sendln command
-if result<>0 goto failed
-sprintf2 command 'SYS_reg set %d 4 1080570508' slot+252
-sendln command
-if result<>0 goto failed
-ti=5
-call tick
-addr=slot+24
-nbytes=232
-path='C:\script\T\C.BIN'
-call dump
-fileopen fh 'C:\script\T\C.BIN' 0
-if fh<0 goto failed
-fhopen=1
-fileread fh 6 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #248#79#45#233#1
-if result<>0 goto failed
-fileread fh 4 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #80#227#46
-if result<>0 goto failed
-fileread fh 1 verifychunk
-if result<>0 goto failed
-strcompare verifychunk ''
-if result<>0 goto failed
-fileread fh 6 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #26#44#96#79#226
-if result<>0 goto failed
-fileread fh 1 verifychunk
-if result<>0 goto failed
-strcompare verifychunk ''
-if result<>0 goto failed
-fileread fh 3 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #145#229
-if result<>0 goto failed
-fileread fh 12 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #16#160#227#176#192#159#229#60#255#47#225
-if result<>0 goto failed
-fileread fh 4 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #80#160#225
-if result<>0 goto failed
-fileread fh 1 verifychunk
-if result<>0 goto failed
-strcompare verifychunk ''
-if result<>0 goto failed
-fileread fh 4 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #85#227#38
-if result<>0 goto failed
-fileread fh 1 verifychunk
-if result<>0 goto failed
-strcompare verifychunk ''
-if result<>0 goto failed
-fileread fh 14 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #218#1#10#160#227#156#192#159#229#60#255#47#225
-if result<>0 goto failed
-fileread fh 4 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #64#160#225
-if result<>0 goto failed
-fileread fh 1 verifychunk
-if result<>0 goto failed
-strcompare verifychunk ''
-if result<>0 goto failed
-fileread fh 4 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #84#227#27
-if result<>0 goto failed
-fileread fh 1 verifychunk
-if result<>0 goto failed
-strcompare verifychunk ''
-if result<>0 goto failed
-fileread fh 3 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #10#5
-if result<>0 goto failed
-fileread fh 19 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #160#225#4#16#160#225#1#42#160#227#128#192#159#229#60#255#47#225
-if result<>0 goto failed
-fileread fh 5 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #112#160#225#5
-if result<>0 goto failed
-fileread fh 16 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #160#225#116#192#159#229#60#255#47#225#1#10#87#227#8
-if result<>0 goto failed
-fileread fh 1 verifychunk
-if result<>0 goto failed
-strcompare verifychunk ''
-if result<>0 goto failed
-fileread fh 2 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #26
-if result<>0 goto failed
-fileread fh 1 verifychunk
-if result<>0 goto failed
-strcompare verifychunk ''
-if result<>0 goto failed
-fileread fh 8 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #148#229#100#16#159#229#1
-if result<>0 goto failed
-fileread fh 4 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #80#225#6
-if result<>0 goto failed
-fileread fh 1 verifychunk
-if result<>0 goto failed
-strcompare verifychunk ''
-if result<>0 goto failed
-fileread fh 3 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #26#6
-if result<>0 goto failed
-fileread fh 11 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #160#225#4#16#160#225#52#255#47#225
-if result<>0 goto failed
-fileread fh 5 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #112#160#225#2
-if result<>0 goto failed
-fileread fh 1 verifychunk
-if result<>0 goto failed
-strcompare verifychunk ''
-if result<>0 goto failed
-fileread fh 6 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #234#227#112#160#227
-if result<>0 goto failed
-fileread fh 1 verifychunk
-if result<>0 goto failed
-strcompare verifychunk ''
-if result<>0 goto failed
-fileread fh 1 verifychunk
-if result<>0 goto failed
-strcompare verifychunk ''
-if result<>0 goto failed
-fileread fh 7 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #234#228#112#160#227#4
-if result<>0 goto failed
-fileread fh 12 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #160#225#56#192#159#229#60#255#47#225#7
-if result<>0 goto failed
-fileread fh 8 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #160#225#248#143#189#232#5
-if result<>0 goto failed
-fileread fh 12 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #160#225#28#192#159#229#60#255#47#225#226
-if result<>0 goto failed
-fileread fh 8 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #160#227#248#143#189#232#225
-if result<>0 goto failed
-fileread fh 30 verifychunk
-if result<>0 goto failed
-strcompare verifychunk #160#227#248#143#189#232#152#93#155#64#200#49#104#64#180#94#155#64#188#93#155#64#12#192#160#225#140#50#104#64
-if result<>0 goto failed
-fileclose fh
-fhopen=0
+next
 addr=slot
 width=4
 value=entry
@@ -442,20 +150,12 @@ addr=slot
 path='C:\script\K12EN81\Q.BIN'
 call readword
 if rd<>entry goto failed
-ti=6
-call tick
 tries=0
 attempts=0
-ti=7
-call tick
 :try_native
 attempts=attempts+1
-ti=8
-call tick
 sendln 'C:\script\T\P.BIN'
 native=result
-ti=9
-call tick
 if native<>209 goto native_returned
 tries=tries+1
 if tries>=30 goto failed
@@ -468,81 +168,6 @@ align=native&3
 if align<>0 goto failed
 block=native
 armed=0
-addr=block+93440
-nbytes=64
-path='C:\script\K12EN81\MEMORY.BIN'
-call dump
-ti=10
-call tick
-addr=block+109888
-nbytes=64
-path='C:\script\K12EN81\TIME_ARM.BIN'
-call dump
-ti=11
-call tick
-call writetime
-pause 5
-addr=block+88832
-nbytes=1536
-path='C:\script\K12EN81\P23_00.BIN'
-call dump
-pause 5
-addr=block+88832
-nbytes=1536
-path='C:\script\K12EN81\P23_01.BIN'
-call dump
-pause 5
-addr=block+88832
-nbytes=1536
-path='C:\script\K12EN81\P23_02.BIN'
-call dump
-pause 5
-addr=block+88832
-nbytes=1536
-path='C:\script\K12EN81\P23_03.BIN'
-call dump
-pause 5
-addr=block+88832
-nbytes=1536
-path='C:\script\K12EN81\P23_04.BIN'
-call dump
-pause 5
-addr=block+88832
-nbytes=1536
-path='C:\script\K12EN81\P23_05.BIN'
-call dump
-pause 5
-addr=block+88832
-nbytes=1536
-path='C:\script\K12EN81\P23_06.BIN'
-call dump
-pause 5
-addr=block+88832
-nbytes=1536
-path='C:\script\K12EN81\P23_07.BIN'
-call dump
-pause 5
-addr=block+88832
-nbytes=1536
-path='C:\script\K12EN81\P23_08.BIN'
-call dump
-pause 5
-addr=block+88832
-nbytes=1536
-path='C:\script\K12EN81\P23_09.BIN'
-call dump
-pause 5
-addr=block+88832
-nbytes=1536
-path='C:\script\K12EN81\P23_10.BIN'
-call dump
-pause 5
-addr=block+88832
-nbytes=1536
-path='C:\script\K12EN81\P23_11.BIN'
-call dump
-message='DONE R51 RESTORED CI ENGINE FOUR_SEASONS     '
-call mark
 end
 :failed
 if recovering=1 goto recovery_warning
@@ -675,29 +300,4 @@ fileopen mh 'C:\script\K12EN81\STATUS.TXT' 0
 if mh<0 end
 filewriteln mh message
 fileclose mh
-return
-:tick
-sendln 'SYS_gstime'
-ticks[ti]=result
-return
-:writetime
-fileopen th 'C:\script\K12EN81\TIME_TTL.TXT' 0
-if th<0 goto failed
-filewriteln th 'R51_TIME_V1 clock=SYS_gstime units=ms wrap=uint32'
-for j 0 11
-int2str tline ticks[j]
-call timeline
-next
-int2str tline tries
-call timeline
-int2str tline attempts
-call timeline
-int2str tline block
-call timeline
-fileclose th
-return
-:timeline
-strconcat tline '                '
-strcopy tline 1 16 fixedline
-filewriteln th fixedline
 return
