@@ -453,7 +453,7 @@ function refreshControls(){
   $('hue').value=Number(slot.color_hue||0);$('hueVal').textContent=Math.round(Number(slot.color_hue||0))+'°';
   $('cameraModel').value=state.cameraModel;$('footerCamera').textContent=state.cameraModel==='istd'?'PENTAX *ist D':state.cameraModel==='k1'?'PENTAX K-1':'PENTAX K-1 II';
   $('exportScriptBtn').textContent=tr(state.cameraModel==='istd'?'导出五TXT':'导出脚本',state.cameraModel==='istd'?'Export 5 TXT':'Export Script');
-  $('footerFilter').textContent=slot.name||'CUST';
+  $('footerFilter').textContent=(slot.user_preset_id&&state.users.get(slot.user_preset_id)?.name)||factoryRow(slot.preset_key)?.label||slot.name||'CUST';
   $('lutModeBtn').classList.toggle('on',state.previewMode==='lut');$('cameraModeBtn').classList.toggle('on',state.previewMode==='camera');$('lutModeBtn').classList.toggle('disabled',!slot.sourceLut);
   $('chartBtn').classList.toggle('on',state.sourceMode==='chart');$('photoBtn').classList.toggle('on',state.sourceMode==='photo');
   $('toggleCompare').textContent=tr(state.compareMode===0?'全显示':state.compareMode===1?'左右':'上下',state.compareMode===0?'Full':state.compareMode===1?'Left / Right':'Top / Bottom');
