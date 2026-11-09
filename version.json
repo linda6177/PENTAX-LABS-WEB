@@ -1,11 +1,12 @@
 {
   "product": "Pentax Labs Web",
-  "web_release": "Beta87",
-  "web_commit": "a053c12e7a0ae6228238e2dd7bb3c22690f7a2be",
+  "web_release": "Beta88",
   "desktop_baseline": "main",
   "source_commit": "c1c805ce64a981113e220ea5662cce11bda4df96",
   "desktop_release": "Beta86 Lite",
   "desktop_release_tag": "beta86",
+  "disabled_models": ["k1"],
+  "k1_export": "disabled",
   "desktop_download_url": "https://github.com/linda6177/PENTAX-LABS-WEB/releases/latest/download/PentaxLabs_Lite_Latest.tar.xz",
   "published_by": "tools/publish_web_public.py"
 }

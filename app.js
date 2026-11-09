@@ -43,15 +43,15 @@ const thumbCache=new Map();
 const originalText=new WeakMap();
 const ACCENTS=['#3178DF','#4E89B1','#A0A0A8','#56AA91','#AA80C7','#C18A5D'];
 const GUIDE_SECTIONS=[
-  ['基础操作','左侧单击原厂滤镜，将其应用到当前顶部滤镜槽。顶部有三个可独立启用的槽；单击槽位切换当前编辑对象，勾选圆点决定该槽是否导出。右侧“色彩矩阵 / 通道曲线”只编辑当前槽。底部相机型号决定最终导出格式，*ist D 与 K-1/K-1 II 的参数结构不同。','Basic Controls','Click a factory filter on the left to apply it to the active top slot. The three top slots can be enabled independently; click a slot to edit it and use the round check control to include or exclude it from export. Color Matrix and Tone Curves affect only the active slot. The camera model at the bottom determines the final export format; *ist D uses a different parameter structure from K-1/K-1 II.'],
+  ['基础操作','左侧单击原厂滤镜，将其应用到当前顶部滤镜槽。顶部有三个可独立启用的槽；单击槽位切换当前编辑对象，勾选圆点决定该槽是否导出。右侧“色彩矩阵 / 通道曲线”只编辑当前槽。底部相机型号决定最终导出格式，*ist D 与 K-1 II 的参数结构不同；K-1 自定义滤镜网页导出自 Beta88 起取消。','Basic Controls','Click a factory filter on the left to apply it to the active top slot. The three top slots can be enabled independently; click a slot to edit it and use the round check control to include or exclude it from export. Color Matrix and Tone Curves affect only the active slot. The camera model at the bottom determines the final export format; *ist D uses a different parameter structure from K-1 II. K-1 custom-filter web export was removed in Beta88.'],
   ['滤镜管理与重命名','用户滤镜由导入 .cube 产生并保存在浏览器本地。用户滤镜可删除，顶部槽位名称可双击修改。左侧缩略图始终使用当前色卡或当前照片同步渲染，因此换照片后整列预览会一起更新。刷新按钮只重绘列表，不会重新拟合或修改参数。','Filters & Renaming','User filters are created by importing .cube files and are stored locally in the browser. User filters can be deleted and top-slot names can be renamed by double-clicking. Left-side thumbnails always render from the current chart or photo, so the whole list updates when the preview photo changes. Refresh only redraws the list; it does not refit or modify parameters.'],
-  ['LUT 导入与导出','导入 .cube 后，K-1 II 使用 R369 原生 Matrix/Gamma 拟合；K-1 与 *ist D 保留各自的 P317 显示域路线。R369 Web 与桌面共享 12k Natural 相机校准样本、原生矩阵基底和暗部加权目标；浏览器使用 JS 分块优化器，桌面使用 SciPy 优化器，因此矩阵可逐项一致，Gamma 仍允许小幅数值差异。软件评分是模型预测，不等同于机内 JPEG 实拍色差。复杂 3D LUT 受机内参数自由度限制，不能保证无损还原。','LUT Import & Export','Imported .cube files use the R369 native Matrix/Gamma model on K-1 II; original K-1 and *ist D retain their P317 display-domain paths. Web and desktop share the 12k Natural camera-calibration samples, native matrix basis and dark-aware objective. The browser uses a JavaScript block optimizer while desktop uses SciPy, so Q8 matrices match while small Gamma-value differences may remain. Software scores are model predictions, not measured in-camera JPEG errors. Complex 3D LUTs cannot always be reproduced losslessly with the camera parameter surface.'],
+  ['LUT 导入与导出','导入 .cube 后，K-1 II 使用 R369 原生 Matrix/Gamma 拟合；*ist D 保留 P317 显示域路线。K-1 自定义滤镜网页导出自 Beta88 起取消。R369 Web 与桌面共享 12k Natural 相机校准样本、原生矩阵基底和暗部加权目标；浏览器使用 JS 分块优化器，桌面使用 SciPy 优化器，因此矩阵可逐项一致，Gamma 仍允许小幅数值差异。软件评分是模型预测，不等同于机内 JPEG 实拍色差。复杂 3D LUT 受机内参数自由度限制，不能保证无损还原。','LUT Import & Export','Imported .cube files use the R369 native Matrix/Gamma model on K-1 II; *ist D retains its P317 display-domain path. K-1 custom-filter web export was removed in Beta88. Web and desktop share the 12k Natural camera-calibration samples, native matrix basis and dark-aware objective. The browser uses a JavaScript block optimizer while desktop uses SciPy, so Q8 matrices match while small Gamma-value differences may remain. Software scores are model predictions, not measured in-camera JPEG errors. Complex 3D LUTs cannot always be reproduced losslessly with the camera parameter surface.'],
   ['色彩矩阵与 Gamma 曲线','以 Natural 为相对基准。曲线显示采用和桌面端相同的“平滑意图”模型：原厂 256 个物理节点不会直接变成 256 个可见控制点，默认只显示黑白端点。像 Lightroom 一样单击曲线添加控制点，并在同一次拖动中调整；已有点有更大的触控命中范围。Alt+拖动曲线主体可做大范围平滑形变；“加点”可在图表任意位置创建节点，右键删除，触屏双击节点删除。后台仍把相对变化写回原有 256 点机内 Gamma。','Color Matrix & Gamma Curves','Natural is the relative reference. The curve uses the same smooth-intent model as desktop: the 256 physical factory nodes are not exposed as 256 visible handles, and only black/white endpoints appear by default. Like Lightroom, click the curve to add a control point and keep dragging in the same gesture; handles have generous touch targets. Alt-drag the curve body for broad smooth shaping, or use Add point anywhere in the graph. Right-click removes a point; double-tap removes one on touchscreens. Relative changes still map back to the original 256 camera Gamma nodes.'],
   ['照片预览与对比','网页启动默认显示色卡。单击“照片”选择本地 JPG/PNG/WebP/AVIF，照片只在浏览器本地解码，不会上传；左侧滤镜缩略图与主预览使用同一张照片。LUT/机内切换用于比较原始 CUBE 与拟合后的机内参数；对比按钮依次切换全显示、左右、上下。照片区域仍支持把 .cube 或照片直接拖入，但不再显示常驻遮挡提示。','Photo Preview & Compare','The web app starts with the color chart. Photo opens a local JPG/PNG/WebP/AVIF and never uploads it; left-side filter thumbnails use the same source as the main preview. LUT/Camera compares the original CUBE with the fitted camera parameters, while Compare cycles Full, Left/Right and Top/Bottom. The photo area still accepts dragged .cube files or photos, but the permanent overlay hint has been removed.'],
-  ['相机脚本导出与注意事项','自定义滤镜页底部选择真实相机型号。K-1 II 使用独立 P286 运行时，K-1 使用独立 R29 运行时；两者都导出 Natural 相对矩阵映射后的 Q8/Q13 与三路 U14。*ist D 使用 signed10 Q8 3×3 Matrix 加一条共享 4096 点 U8 Gamma，所以复杂彩色 LUT 的理论误差可能明显更高。每次点击导出都会先让你选择 SD 卡根目录或测试目录，再直接写入。','Camera Script Export & Notes','Choose the real camera model at the bottom of Custom Filters. K-1 II uses its own P286 runtime and K-1 uses the separate R29 runtime; both export Natural-relative matrix mapping as Q8/Q13 plus three U14 channels. *ist D uses a signed10 Q8 3×3 Matrix plus one shared 4096-node U8 Gamma, so complex color LUTs can have higher model error. Every export first asks for the SD-card root or a test folder and then writes directly.'],
+  ['相机脚本导出与注意事项','自定义滤镜页底部选择真实相机型号。K-1 II 使用独立 P286 运行时；*ist D 使用 signed10 Q8 3×3 Matrix 加一条共享 4096 点 U8 Gamma，所以复杂彩色 LUT 的理论误差可能明显更高。K-1 自定义滤镜网页导出自 Beta88 起取消，界面不再提供 K-1 选项。每次点击导出都会先让你选择 SD 卡根目录或测试目录，再直接写入。','Camera Script Export & Notes','Choose the real camera model at the bottom of Custom Filters. K-1 II uses its own P286 runtime; *ist D uses a signed10 Q8 3×3 Matrix plus one shared 4096-node U8 Gamma, so complex color LUTs can have higher model error. K-1 custom-filter web export was removed in Beta88 and the model is no longer selectable. Every export first asks for the SD-card root or a test folder and then writes directly.'],
   ['正负逆冲','正负逆冲右侧分成“色彩调节”和“通道曲线”两页。色彩调节页选择 Random/Extended 模式与原厂矩阵基底，并调整饱和度、色相、影调、对比度和锐度；矩阵数值由原厂数据在内部参与处理，页面不显示也不提供矩阵编辑。通道曲线页同时显示 R/G/B 三路完整 ROM 曲线，下方分别选择各通道的 0、1、2 曲线编号。Random 模式要求三个编号互不重复，预览与 10B 导出按同一原厂配方模型处理。','Cross Processing','Cross Processing has separate Color Adjustments and Tone Curves pages. Color selects Random/Extended mode and an OEM matrix base, then adjusts saturation, hue, tone, contrast and sharpness. The OEM matrix remains internal to the rendering pipeline; no matrix editor or matrix-value panel is shown. Tone Curves displays all three R/G/B ROM curves simultaneously, with independent 0/1/2 selectors below each channel. Random mode requires three different indices. Preview and 10-byte export use the same factory recipe model.'],
   ['工程模式与四季滤镜','工程模式独立展示完整 36 款机型，保留各机型的按键教程、固件方案和 Service / Factory 入口；只有存在文件的方案才允许导出。四季滤镜独立使用 4 款已适配机型，采用“一次写卡、两次开机”：第一次启用 Script Mode 后正常关机；第二次保持同一张卡正常开机，执行 script/startup.ttl，再到机内菜单检查四季滤镜。','Service Mode & Four Seasons','Service Mode has its own complete 36-model catalog, including button-sequence tutorials, firmware variants and Service / Factory entries. Export is enabled only for variants that contain files. Four Seasons uses a separate list of its four supported models and a one-card, two-boot flow: enable Script Mode and shut down on the first boot; keep the same card inserted on the second boot, run script/startup.ttl, then check the camera menu.'],
-  ['*ist D 工具箱','*ist D 工具箱包含 Firmware 1.12 中文固件和 AF Fine Adjustment。中文固件固定命名 FWDC112B.BIN；调焦范围 −64～+64，默认 +32，生成 KB321.EEP 与 MODSET.TXT。两项都使用“选择目录后直接写入”的流程。*ist D 自定义滤镜的 Matrix/Gamma 能力与 K-1/K-1 II 不同，不能用后三者的三路 Gamma 精度去要求它。','*ist D Toolbox','The *ist D toolbox contains the Chinese Firmware 1.12 file and AF Fine Adjustment. Firmware is always named FWDC112B.BIN; AF adjustment ranges from −64 to +64 with +32 as the default and generates KB321.EEP plus MODSET.TXT. Both use direct folder export. *ist D custom-filter Matrix/Gamma capability differs from K-1/K-1 II and should not be judged against their three independent Gamma channels.'],
+  ['*ist D 工具箱','*ist D 工具箱包含 Firmware 1.12 中文固件和 AF Fine Adjustment。中文固件固定命名 FWDC112B.BIN；调焦范围 −64～+64，默认 +32，生成 KB321.EEP 与 MODSET.TXT。两项都使用“选择目录后直接写入”的流程。*ist D 自定义滤镜的 Matrix/Gamma 能力与 K-1 II 不同，不能用后者的三路 Gamma 精度去要求它。','*ist D Toolbox','The *ist D toolbox contains the Chinese Firmware 1.12 file and AF Fine Adjustment. Firmware is always named FWDC112B.BIN; AF adjustment ranges from −64 to +64 with +32 as the default and generates KB321.EEP plus MODSET.TXT. Both use direct folder export. *ist D custom-filter Matrix/Gamma capability differs from K-1 II and should not be judged against its three independent Gamma channels.'],
   ['导出目录与浏览器权限','自定义滤镜、工程模式、四季滤镜、*ist D 固件和调焦文件都以“选择目录后直接写入”为主流程。通常直接选择相机 SD 卡根目录，也可以先选任意测试目录。浏览器安全模型不允许网页静默枚举 Windows 盘符或卷标，所以第一次及每次主动导出都会打开系统目录选择器；上次目录只作为起始位置。浏览器不支持 File System Access API 时才回退 ZIP/下载。不要把 script 子目录本身当作 SD 根目录。','Export Folders & Browser Permissions','Custom filters, Service Mode, Four Seasons, *ist D firmware and AF files all use direct folder export as the primary workflow. Normally choose the camera SD-card root, or use a test folder first. Browser security prevents a web page from silently enumerating Windows drive letters or volume labels, so every explicit export opens the system folder picker; the previous folder is only used as the starting location. ZIP/download is only the fallback when the File System Access API is unavailable. Do not select the script subfolder itself as the SD-card root.'],
 ];
 
@@ -178,7 +178,8 @@ function initializeSlots(){
   if(restored){
     state.currentPage=FEATURES.some(x=>x[0]===restored.currentPage)?restored.currentPage:'filters';
     state.active=Math.max(0,Math.min(2,Number(restored.active)||0));
-    state.cameraModel=['istd','k1','k1ii'].includes(restored.cameraModel)?restored.cameraModel:'k1ii';state.tab=restored.tab==='user'?'user':'factory';
+    const restoredModel=restored.cameraModel==='k1'?'k1ii':restored.cameraModel;
+    state.cameraModel=['istd','k1ii'].includes(restoredModel)?restoredModel:'k1ii';state.tab=restored.tab==='user'?'user':'factory';
     state.compareMode=Math.max(0,Math.min(2,Number(restored.compareMode)||0));
     state.language=LANGUAGE_OPTIONS.some(([value])=>value===restored.language)?restored.language:'system';
     state.accent=/^#[0-9a-f]{6}$/i.test(restored.accent||'')?restored.accent:'#3178DF';
@@ -266,7 +267,8 @@ function rebuildFactorySlots(){
 }
 
 function switchCameraModel(model){
-  if(!['istd','k1','k1ii'].includes(model)||model===state.cameraModel)return;
+  if(model==='k1'){notify('K-1 网页自定义滤镜导出已取消，请选择 K-1 II 或 *ist D');return;}
+  if(!['istd','k1ii'].includes(model)||model===state.cameraModel)return;
   const previous=state.slots.map(cloneSlot),previousBases=state.bases.map(cloneSlot);
   state.cameraModel=model;rebuildFactorySlots();
   for(const item of state.users.values()){
@@ -287,7 +289,7 @@ function switchCameraModel(model){
   state.curveAnchors=Array.from({length:3},()=>Array.from({length:4},()=>[]));
   state.curveDisplays=Array.from({length:3},()=>Array.from({length:4},()=>null));
   state.channel=model==='istd'?0:Math.min(3,state.channel);
-  persist();refresh();setStatus('机型：'+(model==='istd'?'PENTAX *ist D':model==='k1'?'PENTAX K-1':'PENTAX K-1 II'));
+  persist();refresh();setStatus('机型：'+(model==='istd'?'PENTAX *ist D':'PENTAX K-1 II'));
 }
 
 function renderNav(){
@@ -344,7 +346,7 @@ function renderFilterList(){
     const thumb=document.createElement('canvas');thumb.className='thumb';thumb.width=152;thumb.height=112;
     const copy=document.createElement('span');copy.className='filter-label';const title=document.createElement('b');title.textContent=factory?item.label:item.name;
     const sub=document.createElement('small');sub.textContent=factory?(
-      (state.cameraModel==='istd'?'*ist D · Matrix + shared 4096 Gamma':state.cameraModel==='k1'?'K-1 · Matrix + RGB Gamma':'K-1 II · Matrix + RGB Gamma')+
+      (state.cameraModel==='istd'?'*ist D · Matrix + shared 4096 Gamma':'K-1 II · Matrix + RGB Gamma')+
       ' · ΔE00 '+(Number.isFinite(slot.fit_report?.mean_de00)?slot.fit_report.mean_de00.toFixed(2):'—')):(
       (item.slot.fit_report?.fit_profile?.startsWith('R369-k1ii-native-darkaware-js-')?'R369 原生模型':item.slot.fit_report?.fit_profile?.startsWith('P317-')?'P317 显示域':'旧版拟合')+' · ΔE00 '+(Number.isFinite(item.slot.fit_report?.de00_mean)?item.slot.fit_report.de00_mean.toFixed(2):'—')+
       ' · RGB '+(Number.isFinite(item.slot.fit_report?.rgb_mae_255)?item.slot.fit_report.rgb_mae_255.toFixed(2)+'/255':'—'));
@@ -451,7 +453,7 @@ function refreshControls(){
   $('contrast').value=Number(slot.contrast||0);$('contrastVal').textContent=String(Math.round(Number(slot.contrast||0)));
   $('saturation').value=Number(slot.color_sat??1);$('saturationVal').textContent=Number(slot.color_sat??1).toFixed(2)+' ×';
   $('hue').value=Number(slot.color_hue||0);$('hueVal').textContent=Math.round(Number(slot.color_hue||0))+'°';
-  $('cameraModel').value=state.cameraModel;$('footerCamera').textContent=state.cameraModel==='istd'?'PENTAX *ist D':state.cameraModel==='k1'?'PENTAX K-1':'PENTAX K-1 II';
+  $('cameraModel').value=state.cameraModel;$('footerCamera').textContent=state.cameraModel==='istd'?'PENTAX *ist D':'PENTAX K-1 II';
   $('exportScriptBtn').textContent=tr(state.cameraModel==='istd'?'导出五TXT':'导出脚本',state.cameraModel==='istd'?'Export 5 TXT':'Export Script');
   $('footerFilter').textContent=(slot.user_preset_id&&state.users.get(slot.user_preset_id)?.name)||factoryRow(slot.preset_key)?.label||slot.name||'CUST';
   $('lutModeBtn').classList.toggle('on',state.previewMode==='lut');$('cameraModeBtn').classList.toggle('on',state.previewMode==='camera');$('lutModeBtn').classList.toggle('disabled',!slot.sourceLut);
@@ -556,6 +558,7 @@ async function chooseR367Runtime(){
 }
 async function exportCameraScript(camera=state.cameraModel){
   try{
+    if(camera==='k1')throw Error('K-1 网页自定义滤镜导出已取消；请选择 K-1 II 或 *ist D');
     let files;
     if(camera==='istd')files=compileIstdFiles(currentSlot());
     else {
@@ -570,7 +573,7 @@ async function exportCameraScript(camera=state.cameraModel){
       return;
     }
     const blob=camera==='istd'?new Blob([zipStore(files)],{type:'application/zip'}):compileCameraScript(state.slots,camera,state.runtimeBases[camera]);
-    downloadBlob(camera==='istd'?'PentaxLabs_istD_5TXT.zip':`PentaxLabs_${camera==='k1'?'K1':'K1II'}_script.zip`,blob,'application/zip');
+    downloadBlob(camera==='istd'?'PentaxLabs_istD_5TXT.zip':'PentaxLabs_K1II_script.zip',blob,'application/zip');
     notify('当前浏览器不支持目录直写，已回退下载 ZIP');
   }catch(e){if(e?.name==='AbortError')return;notify(e.message||String(e));}
 }
@@ -779,9 +782,8 @@ async function start(){
   installEvents();
   try{
     setStatus(tr('正在加载','Loading'));await loadLibraries();initializeSlots();rebuildFactorySlots();
-    const [k1iiRuntime,k1Runtime]=await Promise.allSettled([loadBuiltinRuntime('k1ii'),loadBuiltinRuntime('k1')]);
-    state.runtimeBases.k1ii=k1iiRuntime.status==='fulfilled'?k1iiRuntime.value:null;
-    state.runtimeBases.k1=k1Runtime.status==='fulfilled'?k1Runtime.value:null;
+    const k1iiRuntime=await Promise.allSettled([loadBuiltinRuntime('k1ii')]);
+    state.runtimeBases.k1ii=k1iiRuntime[0].status==='fulfilled'?k1iiRuntime[0].value:null;
     const hash=location.hash.replace(/^#/,'');if(FEATURES.some(x=>x[0]===hash))state.currentPage=hash;
     $('cameraModel').value=state.cameraModel;chartSource();setupEngineering();renderCpUi();refresh();goPage(state.currentPage);renderSettings();translateStatic(document.body);persist();
     try{

@@ -26,18 +26,16 @@ const dec=new TextDecoder('ascii');
 // Offline verification helper. The production Web UI never asks the user for
 // these files; it loads the validated beta80 templates with loadBuiltinRuntime.
 export async function readRuntimeFiles(fileList,cameraModel) {
+  if(cameraModel==='k1') throw Error('K-1 网页自定义滤镜导出已取消');
   const files={};
   for(const file of fileList) files[file.name.toLowerCase()]={data:new Uint8Array(await file.arrayBuffer())};
   const p=files['p.bin'],r=files['r.bin'],ttl=files['startup.ttl'];
   if(!p||!r||!ttl) throw Error('runtime verification set is incomplete');
-  const expected=cameraModel==='k1'?'K1N29':'K12EN81';
+  const expected='K12EN81';
   if(p.data.length!==4096||r.data.length<0x16B48||!dec.decode(ttl.data).includes(expected))
     throw Error('runtime verification set does not match '+expected);
-  if(cameraModel==='k1ii') await validateR367(p.data,r.data,ttl.data);
-  const startup=cameraModel==='k1'?optimizedK1Startup(ttl.data):ttl.data;
-  if(cameraModel==='k1'&&(startup.length!==K1_R30_STARTUP.bytes||await sha256(startup)!==K1_R30_STARTUP.sha256))
-    throw Error('K-1 R30 快速启动脚本编译结果与桌面不一致，拒绝导出');
-  return {cameraModel,p:p.data,r:r.data,ttl:startup,loadedAt:Date.now()};
+  await validateR367(p.data,r.data,ttl.data);
+  return {cameraModel,p:p.data,r:r.data,ttl:ttl.data,loadedAt:Date.now()};
 }
 
 function signed(value,bits) {
@@ -134,11 +132,6 @@ async function sha256(bytes){
   return Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');
 }
 
-// Desktop Beta73+ compiles the K-1 R29 installer into the R30 fast-startup
-// script (6,078 B). The web used to ship the original 17,993 B R29 installer,
-// so K-1 exports were not the same script as the desktop release.
-const K1_R30_STARTUP={bytes:6078,sha256:'9a525c208074200491e7cda941b69c570ce5e689805ab9dbce2ef251adea960f'};
-
 const RUNTIME_SHA={
   k1ii:{
     'P.BIN':'7381e73b77de6295ed48d95a6d8e67d354687d6ba9845b8edf9c04901b684cd9',
@@ -146,11 +139,6 @@ const RUNTIME_SHA={
     // GitHub Pages serves text files with LF after Git normalization. Pin the
     // LF-normalized script identity, then restore CRLF before writing to SD.
     'startup.ttl':'1b3b05d4dfb44c20ab5393c50e3c82d160e7fe95a9b18a51682d975ca8ae6631',
-  },
-  k1:{
-    'P.BIN':'c5cfb69843caf792f74ba14d38ae0456e99e64d342fa6ee1f989ab47fe7e47b2',
-    'R.BIN':'f3727523cb5cd1807748bb555346b55253cafd382f6ba29560993ddf72e68d61',
-    'startup.ttl':'7e061ec181ad2b48303d952da828ad72bcdf1d23fd2ba76cfd41ca5cace280d4',
   },
 };
 
@@ -169,58 +157,6 @@ function crlfNormalized(bytes){
   return new Uint8Array(out);
 }
 
-// Exact browser port of desktop app/core/native.py::_optimized_k1_startup.
-// The K-1 P/R payload stays byte-identical; only script-side diagnostics,
-// duplicate guards, the runtime REG.TXT rewrite and the 1 s retry are removed.
-export function optimizedK1Startup(raw){
-  let text=new TextDecoder('ascii').decode(raw).replace(/\r\n/g,'\n');
-  const fixed=/addr=(\d+)\nguardwant=([^\n]+)\ncall readguard\n/g;
-  const guards=[...text.matchAll(fixed)];
-  if(guards.length!==8) throw Error('K-1 startup guard layout changed');
-  const keep=new Set(['1080448556','1092688948']);
-  const remove=guards.filter(m=>!keep.has(m[1])&&m[1]!=='0');
-  if(remove.length!==6) throw Error('K-1 startup fixed-guard count changed');
-  for(let i=remove.length-1;i>=0;i--){
-    const m=remove[i];text=text.slice(0,m.index)+text.slice(m.index+m[0].length);
-  }
-  const regBlock="record='C:\\script\\T\\P.BIN               ,   1080448556'\n"
-    +"fileopen mh 'C:\\script\\T\\REG.TXT' 0\nif mh<0 goto failed\n"
-    +"filewriteln mh record\nfileclose mh\n";
-  if(text.split(regBlock).length!==2) throw Error('K-1 startup REG.TXT block changed');
-  text=text.replace(regBlock,'');
-  const writePat=/sprintf2 command 'SYS_reg set %d 4 (-?\d+)' slot\+(\d+)\nsendln command\nif result<>0 goto failed\n/g;
-  const writes=[...text.matchAll(writePat)];
-  if(writes.length!==58) throw Error('K-1 startup Stage0 write count changed');
-  const values=writes.map((m,i)=>{
-    if(Number(m[2])!==24+i*4) throw Error('K-1 startup Stage0 slot offset changed');
-    return Number(m[1]);
-  });
-  const blockStart=writes[0].index,blockEnd=writes.at(-1).index+writes.at(-1)[0].length;
-  let compact=values.map((v,i)=>`saved[${i}]=${v}\n`).join('');
-  compact+="for i 0 57\nsprintf2 command 'SYS_reg set %d 4 %d' slot+24+i*4 saved[i]\n"
-    +"sendln command\nif result<>0 goto failed\nnext\n";
-  text=text.slice(0,blockStart)+compact+text.slice(blockEnd);
-  const verify='addr=slot\nwidth=4\nvalue=entry\ncall setreg\n';
-  const phase5=text.indexOf('phase=5\n');
-  const verifyAt=text.indexOf(verify,phase5);
-  if(phase5<0||verifyAt<0) throw Error('K-1 startup phase-5 layout changed');
-  text=text.slice(0,phase5)+'phase=5\n'+text.slice(verifyAt);
-  text=text.replace('pause 1\n','mpause 200\n');
-  const diagStart=text.indexOf('phase=7\n',text.indexOf(':native_returned\n'));
-  const marker="phase=8\ncall savephase\nmessage='DONE K1 R29 NATIVE FILTERS     '\ncall mark\nend\n";
-  const diagEnd=text.indexOf(marker,diagStart)+marker.length;
-  if(diagStart<0||diagEnd<marker.length) throw Error('K-1 startup diagnostic block changed');
-  const fastDone="phase=8\ncall savephase\nmessage='DONE K1 R30 FAST NATIVE FILTERS'\ncall mark\nend\n";
-  text=text.slice(0,diagStart)+fastDone+text.slice(diagEnd);
-  text=text.replace(/ti=\d+\ncall tick\n/g,'').replace('intdim ticks 12\n','');
-  for(const [label,next] of [[':tick\n',':writetime\n'],[':writetime\n',':savephase\n']]){
-    if(text.includes(label)&&text.includes(next)){
-      const a=text.indexOf(label),b=text.indexOf(next,a);text=text.slice(0,a)+text.slice(b);
-    }
-  }
-  return new TextEncoder().encode(text.replace(/\n/g,'\r\n'));
-}
-
 export async function validateR367(p,r,ttl){
   const hashes=await Promise.all([sha256(p),sha256(r),sha256(lfNormalized(ttl))]);
   if(p.length!==4096||r.length!==0x1be00||hashes[0]!==RUNTIME_SHA.k1ii['P.BIN']||
@@ -230,9 +166,10 @@ export async function validateR367(p,r,ttl){
 }
 
 export async function loadBuiltinRuntime(cameraModel) {
-  const key=cameraModel==='k1'?'k1':'k1ii';
+  if(cameraModel!=='k1ii') throw Error('K-1 网页自定义滤镜导出已取消');
+  const key='k1ii';
   const root='./assets/runtime/'+key+'/';
-  const source=key==='k1'?'../app/core/assets/k1_native_r29/':'../app/core/assets/p286/';
+  const source='../app/core/assets/p286/';
   const [p,r,ttl]=await Promise.all([
     fetchRuntimeBytes([root+'P.BIN',source+'P.BIN'],'P.BIN'),
     fetchRuntimeBytes([root+'R.BIN',source+'R.BIN'],'R.BIN'),
@@ -243,20 +180,18 @@ export async function loadBuiltinRuntime(cameraModel) {
   const hashes=await Promise.all([sha256(p),sha256(r),sha256(lfNormalized(ttl))]);
   for(const [name,actual] of [['P.BIN',hashes[0]],['R.BIN',hashes[1]],['startup.ttl',hashes[2]]])
     if(actual!==RUNTIME_SHA[key][name])throw Error(`${key} ${name} SHA256 不匹配，拒绝导出`);
-  const expected=key==='k1'?'K1N29':'K12EN81';
+  const expected='K12EN81';
   if(!dec.decode(ttl).includes(expected)) throw Error('内置脚本与当前机型不匹配：'+expected);
-  const startup=key==='k1'?optimizedK1Startup(ttl):ttl;
-  if(key==='k1'&&(startup.length!==K1_R30_STARTUP.bytes||await sha256(startup)!==K1_R30_STARTUP.sha256))
-    throw Error('K-1 R30 快速启动脚本编译结果与桌面不一致，拒绝导出');
-  return {cameraModel:key,p,r,ttl:crlfNormalized(startup),loadedAt:Date.now(),builtin:true};
+  return {cameraModel:key,p,r,ttl:crlfNormalized(ttl),loadedAt:Date.now(),builtin:true};
 }
 
 export function compileCameraScriptFiles(slots,cameraModel,base) {
+  if(cameraModel!=='k1ii') throw Error('K-1 网页自定义滤镜导出已取消');
   if(!base||base.cameraModel!==cameraModel) throw Error('当前机型的内置运行时尚未加载');
   const active=slots.filter(s=>s.enabled);
   if(active.length<1||active.length>3) throw Error('请启用 1～3 个自定义滤镜槽');
   const runtime=new Uint8Array(base.r); const rv=new DataView(runtime.buffer);
-  if(cameraModel==='k1ii' && (runtime.length!==0x1be00||rv.getUint32(0x11f9c,true)!==0xea002517||rv.getUint32(0x164ac,true)!==0xea0013d3))
+  if(runtime.length!==0x1be00||rv.getUint32(0x11f9c,true)!==0xea002517||rv.getUint32(0x164ac,true)!==0xea0013d3)
     throw Error('K-1 II 运行底座缺少 R367 Natural 矩阵路由，请重新选择稳定版 R367 script 文件夹');
   // Desktop replaces all three CUST icon slots, including disabled ones, so
   // no factory POSI/NEGA icon can leak into the custom-filter menu.
@@ -268,7 +203,7 @@ export function compileCameraScriptFiles(slots,cameraModel,base) {
     const compiled=reverseCompose(requested);
     const matrixAt=META.matrices[i];
     compiled.source.flat().forEach((v,n)=>put16(rv,matrixAt+n*2,v));
-    if(cameraModel==='k1ii') compiled.source.flat().forEach((v,n)=>put16(rv,0x1bd80+i*32+n*2,v));
+    compiled.source.flat().forEach((v,n)=>put16(rv,0x1bd80+i*32+n*2,v));
     const gammaAt=GAMMA+i*1536, curves=effectiveCurves(slot);
     for(let c=0;c<3;c++) for(let n=0;n<256;n++) {
       const value=Math.max(0,Math.min(WHITE,Math.round(curves[c][n])));
@@ -292,10 +227,8 @@ export function compileCameraScriptFiles(slots,cameraModel,base) {
   const stage=new Uint8Array(base.p); const sv=new DataView(stage.buffer);
   put32(sv,META.stageRuntimeCrcOffset,crc32(runtime));
   put32(sv,4092,crc32(stage.slice(0,4092)));
-  const status=cameraModel==='k1'?'K1N29':'K12EN81';
-  const reg=cameraModel==='k1'
-    ?'C:\\script\\T\\P.BIN               ,   1080448556\r\n'
-    :'C:\\script\\T\\P.BIN               ,   1080573344\r\n';
+  const status='K12EN81';
+  const reg='C:\\script\\T\\P.BIN               ,   1080573344\r\n';
   return {
     'script/startup.ttl':base.ttl,
     'script/T/P.BIN':stage,
