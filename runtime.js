@@ -34,7 +34,10 @@ export async function readRuntimeFiles(fileList,cameraModel) {
   if(p.data.length!==4096||r.data.length<0x16B48||!dec.decode(ttl.data).includes(expected))
     throw Error('runtime verification set does not match '+expected);
   if(cameraModel==='k1ii') await validateR367(p.data,r.data,ttl.data);
-  return {cameraModel,p:p.data,r:r.data,ttl:ttl.data,loadedAt:Date.now()};
+  const startup=cameraModel==='k1'?optimizedK1Startup(ttl.data):ttl.data;
+  if(cameraModel==='k1'&&(startup.length!==K1_R30_STARTUP.bytes||await sha256(startup)!==K1_R30_STARTUP.sha256))
+    throw Error('K-1 R30 快速启动脚本编译结果与桌面不一致，拒绝导出');
+  return {cameraModel,p:p.data,r:r.data,ttl:startup,loadedAt:Date.now()};
 }
 
 function signed(value,bits) {
@@ -131,6 +134,11 @@ async function sha256(bytes){
   return Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,'0')).join('');
 }
 
+// Desktop Beta73+ compiles the K-1 R29 installer into the R30 fast-startup
+// script (6,078 B). The web used to ship the original 17,993 B R29 installer,
+// so K-1 exports were not the same script as the desktop release.
+const K1_R30_STARTUP={bytes:6078,sha256:'9a525c208074200491e7cda941b69c570ce5e689805ab9dbce2ef251adea960f'};
+
 const RUNTIME_SHA={
   k1ii:{
     'P.BIN':'7381e73b77de6295ed48d95a6d8e67d354687d6ba9845b8edf9c04901b684cd9',
@@ -161,6 +169,58 @@ function crlfNormalized(bytes){
   return new Uint8Array(out);
 }
 
+// Exact browser port of desktop app/core/native.py::_optimized_k1_startup.
+// The K-1 P/R payload stays byte-identical; only script-side diagnostics,
+// duplicate guards, the runtime REG.TXT rewrite and the 1 s retry are removed.
+export function optimizedK1Startup(raw){
+  let text=new TextDecoder('ascii').decode(raw).replace(/\r\n/g,'\n');
+  const fixed=/addr=(\d+)\nguardwant=([^\n]+)\ncall readguard\n/g;
+  const guards=[...text.matchAll(fixed)];
+  if(guards.length!==8) throw Error('K-1 startup guard layout changed');
+  const keep=new Set(['1080448556','1092688948']);
+  const remove=guards.filter(m=>!keep.has(m[1])&&m[1]!=='0');
+  if(remove.length!==6) throw Error('K-1 startup fixed-guard count changed');
+  for(let i=remove.length-1;i>=0;i--){
+    const m=remove[i];text=text.slice(0,m.index)+text.slice(m.index+m[0].length);
+  }
+  const regBlock="record='C:\\script\\T\\P.BIN               ,   1080448556'\n"
+    +"fileopen mh 'C:\\script\\T\\REG.TXT' 0\nif mh<0 goto failed\n"
+    +"filewriteln mh record\nfileclose mh\n";
+  if(text.split(regBlock).length!==2) throw Error('K-1 startup REG.TXT block changed');
+  text=text.replace(regBlock,'');
+  const writePat=/sprintf2 command 'SYS_reg set %d 4 (-?\d+)' slot\+(\d+)\nsendln command\nif result<>0 goto failed\n/g;
+  const writes=[...text.matchAll(writePat)];
+  if(writes.length!==58) throw Error('K-1 startup Stage0 write count changed');
+  const values=writes.map((m,i)=>{
+    if(Number(m[2])!==24+i*4) throw Error('K-1 startup Stage0 slot offset changed');
+    return Number(m[1]);
+  });
+  const blockStart=writes[0].index,blockEnd=writes.at(-1).index+writes.at(-1)[0].length;
+  let compact=values.map((v,i)=>`saved[${i}]=${v}\n`).join('');
+  compact+="for i 0 57\nsprintf2 command 'SYS_reg set %d 4 %d' slot+24+i*4 saved[i]\n"
+    +"sendln command\nif result<>0 goto failed\nnext\n";
+  text=text.slice(0,blockStart)+compact+text.slice(blockEnd);
+  const verify='addr=slot\nwidth=4\nvalue=entry\ncall setreg\n';
+  const phase5=text.indexOf('phase=5\n');
+  const verifyAt=text.indexOf(verify,phase5);
+  if(phase5<0||verifyAt<0) throw Error('K-1 startup phase-5 layout changed');
+  text=text.slice(0,phase5)+'phase=5\n'+text.slice(verifyAt);
+  text=text.replace('pause 1\n','mpause 200\n');
+  const diagStart=text.indexOf('phase=7\n',text.indexOf(':native_returned\n'));
+  const marker="phase=8\ncall savephase\nmessage='DONE K1 R29 NATIVE FILTERS     '\ncall mark\nend\n";
+  const diagEnd=text.indexOf(marker,diagStart)+marker.length;
+  if(diagStart<0||diagEnd<marker.length) throw Error('K-1 startup diagnostic block changed');
+  const fastDone="phase=8\ncall savephase\nmessage='DONE K1 R30 FAST NATIVE FILTERS'\ncall mark\nend\n";
+  text=text.slice(0,diagStart)+fastDone+text.slice(diagEnd);
+  text=text.replace(/ti=\d+\ncall tick\n/g,'').replace('intdim ticks 12\n','');
+  for(const [label,next] of [[':tick\n',':writetime\n'],[':writetime\n',':savephase\n']]){
+    if(text.includes(label)&&text.includes(next)){
+      const a=text.indexOf(label),b=text.indexOf(next,a);text=text.slice(0,a)+text.slice(b);
+    }
+  }
+  return new TextEncoder().encode(text.replace(/\n/g,'\r\n'));
+}
+
 export async function validateR367(p,r,ttl){
   const hashes=await Promise.all([sha256(p),sha256(r),sha256(lfNormalized(ttl))]);
   if(p.length!==4096||r.length!==0x1be00||hashes[0]!==RUNTIME_SHA.k1ii['P.BIN']||
@@ -185,7 +245,10 @@ export async function loadBuiltinRuntime(cameraModel) {
     if(actual!==RUNTIME_SHA[key][name])throw Error(`${key} ${name} SHA256 不匹配，拒绝导出`);
   const expected=key==='k1'?'K1N29':'K12EN81';
   if(!dec.decode(ttl).includes(expected)) throw Error('内置脚本与当前机型不匹配：'+expected);
-  return {cameraModel:key,p,r,ttl:crlfNormalized(ttl),loadedAt:Date.now(),builtin:true};
+  const startup=key==='k1'?optimizedK1Startup(ttl):ttl;
+  if(key==='k1'&&(startup.length!==K1_R30_STARTUP.bytes||await sha256(startup)!==K1_R30_STARTUP.sha256))
+    throw Error('K-1 R30 快速启动脚本编译结果与桌面不一致，拒绝导出');
+  return {cameraModel:key,p,r,ttl:crlfNormalized(startup),loadedAt:Date.now(),builtin:true};
 }
 
 export function compileCameraScriptFiles(slots,cameraModel,base) {
@@ -195,6 +258,10 @@ export function compileCameraScriptFiles(slots,cameraModel,base) {
   const runtime=new Uint8Array(base.r); const rv=new DataView(runtime.buffer);
   if(cameraModel==='k1ii' && (runtime.length!==0x1be00||rv.getUint32(0x11f9c,true)!==0xea002517||rv.getUint32(0x164ac,true)!==0xea0013d3))
     throw Error('K-1 II 运行底座缺少 R367 Natural 矩阵路由，请重新选择稳定版 R367 script 文件夹');
+  // Desktop replaces all three CUST icon slots, including disabled ones, so
+  // no factory POSI/NEGA icon can leak into the custom-filter menu.
+  const icon=iconPixels();
+  for(let i=0;i<3;i++) runtime.set(icon,META.icons[i]);
   for(let i=0;i<active.length;i++) {
     const slot=active[i];
     const requested=hardwareForSlot(slot);
@@ -208,7 +275,6 @@ export function compileCameraScriptFiles(slots,cameraModel,base) {
       rv.setUint16(gammaAt+(c*256+n)*2,value,true);
     }
     runtime.set(titlePixels(slot.name),META.titles[i]);
-    runtime.set(iconPixels(),META.icons[i]);
   }
   put32(rv,MASK,(1<<active.length)-1);
   const focusAt=META.focusOriginal+4;

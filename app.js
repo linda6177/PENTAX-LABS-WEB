@@ -344,7 +344,7 @@ function renderFilterList(){
     const thumb=document.createElement('canvas');thumb.className='thumb';thumb.width=152;thumb.height=112;
     const copy=document.createElement('span');copy.className='filter-label';const title=document.createElement('b');title.textContent=factory?item.label:item.name;
     const sub=document.createElement('small');sub.textContent=factory?(
-      (state.cameraModel==='istd'?'*ist D · Matrix + shared 4096 Gamma':'K12 · Matrix + RGB Gamma')+
+      (state.cameraModel==='istd'?'*ist D · Matrix + shared 4096 Gamma':state.cameraModel==='k1'?'K-1 · Matrix + RGB Gamma':'K-1 II · Matrix + RGB Gamma')+
       ' · ΔE00 '+(Number.isFinite(slot.fit_report?.mean_de00)?slot.fit_report.mean_de00.toFixed(2):'—')):(
       (item.slot.fit_report?.fit_profile?.startsWith('R369-k1ii-native-darkaware-js-')?'R369 原生模型':item.slot.fit_report?.fit_profile?.startsWith('P317-')?'P317 显示域':'旧版拟合')+' · ΔE00 '+(Number.isFinite(item.slot.fit_report?.de00_mean)?item.slot.fit_report.de00_mean.toFixed(2):'—')+
       ' · RGB '+(Number.isFinite(item.slot.fit_report?.rgb_mae_255)?item.slot.fit_report.rgb_mae_255.toFixed(2)+'/255':'—'));

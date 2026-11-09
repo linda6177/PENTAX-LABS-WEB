@@ -1,5 +1,6 @@
 {
   "product": "Pentax Labs Web",
+  "web_release": "Beta87",
   "desktop_baseline": "main",
   "source_commit": "c1c805ce64a981113e220ea5662cce11bda4df96",
   "desktop_release": "Beta86 Lite",
